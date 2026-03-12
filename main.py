@@ -1,103 +1,78 @@
-import datetime  
-import os.path  
-import sys
-
+import datetime  #For datetime objects
+import os.path  # To manage paths
+import sys  # To find out the script name (in argv[0])
 import backtrader as bt
+from qmtdatafeed import test
+import backtrader.indicators as btind
 
-class TestStrategy(bt.Strategy):
+# 定义RSI趋势策略
+class RSIStrategy(bt.Strategy):
+    # 策略参数（可回测优化）
     params = (
-        ('maperiod', 15),
+        ('rsi_period', 14), # RSI计算周期
+        ('rsi_low', 40), # RSI超卖阈值
+        ('rsi_high', 60), # RSI超买阈值
+        ('stop_loss_pct', 0.15), # 止损比例（2%）
+        ('take_profit_pct', 0.50)# 止盈比例（4%）
     )
-
-    def log(self, txt, dt=None):
-        dt = dt or self.datas[0].datetime.date(0)
-        print('%s, %s' % (dt.isoformat(), txt))
 
     def __init__(self):
-        self.dataclose = self.datas[0].close
-        self.order = None
-        self.buyprice = None
-        self.buycomm = None
-        self.sma = bt.indicators.SimpleMovingAverage(
-            self.datas[0], period=self.params.maperiod)
+        # 初始化RSI指标
+        self.rsi = btind.RSI(self.data, period=self.params.rsi_period)
         
-        # Indicators for the plotting show
-        bt.indicators.ExponentialMovingAverage(self.datas[0], period=25)
-        bt.indicators.WeightedMovingAverage(self.datas[0], period=25,
-                                            subplot=True)
-        bt.indicators.StochasticSlow(self.datas[0])
-        bt.indicators.MACDHisto(self.datas[0])
-        rsi = bt.indicators.RSI(self.datas[0])
-        bt.indicators.SmoothedMovingAverage(rsi, period=10)
-        bt.indicators.ATR(self.datas[0], plot=False)
+        # 记录订单和止损止盈价格
+        self.order = None
+        # self.stop_loss_price = 0
+        # self.take_profit_price = 0
 
     def notify_order(self, order):
+        # 订单状态处理（避免重复下单）
         if order.status in [order.Submitted, order.Accepted]:
             return
-
-        if order.status in [order.Completed]:
-            if order.isbuy():
-                self.log('BUY EXECUTED, Price: %.2f, Cost: %.2f, Comm %.2f' %
-                         (order.executed.price,
-                          order.executed.value,
-                          order.executed.comm))
-                self.buyprice = order.executed.price
-                self.buycomm = order.executed.comm
-            else:
-                self.log('SELL EXECUTED, Price: %.2f, Cost: %.2f, Comm %.2f' %
-                         (order.executed.price,
-                          order.executed.value,
-                          order.executed.comm))
-            self.bar_executed = len(self)
-
-        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            self.log('Order Canceled/Margin/Rejected')
-
         self.order = None
 
-    def notify_trade(self, trade):
-        if not trade.isclosed:
-            return
-        self.log('OPERATION PROFIT, GROSS %.2f, NET %.2f' %
-                 (trade.pnl, trade.pnlcomm))
-
     def next(self):
-        self.log('Close, %.2f' % self.dataclose[0])
-
-        if self.order:
-            return
-
+        # 无持仓时判断开仓
         if not self.position:
-            if self.dataclose[0] > self.sma[0]:
-                self.log('BUY CREATE, %.2f' % self.dataclose[0])
-                self.order = self.buy()
+            # RSI低于超卖阈值 → 开多仓
+            if self.rsi[0] < self.params.rsi_low:
+                # 全仓操作：计算可买入数量
+                cash = self.broker.getcash()
+                size = int(cash / self.data.close[0])
+                if size > 0:
+                    self.order = self.buy(size=size)
+                    # 设置止损止盈
+                    self.stop_loss_price = self.data.close[0] * (1 - self.params.stop_loss_pct)
+                    self.take_profit_price = self.data.close[0] * (1 + self.params.take_profit_pct)
+        
+        # 有持仓时判断止损止盈或RSI超买
         else:
-            if self.dataclose[0] < self.sma[0]:
-                self.log('SELL CREATE, %.2f' % self.dataclose[0])
-                self.order = self.sell()
-
-def main():
-    cerebro = bt.Cerebro()
-
-    # 设置初始资金为 100000.0
-    cerebro.broker.setcash(100000.0)
-    # 设置交易佣金为千分之三（0.1%）
-    cerebro.broker.setcommission(commission=0.001)
-    # 滑点 0.1%
-    cerebro.broker.set_slippage_perc(0.001)
-    
-    print(f'初始资金: {cerebro.broker.getvalue():.2f}')
-
-    data = bt.feeds.GenericCSVData(
-        dataname="./orcl-1995-2014.txt", dtformat="%Y-%m-%d",
-    )
-    cerebro.adddata(data)
-    cerebro.addstrategy(TestStrategy, maperiod=15)
-
-    cerebro.run()
-    cerebro.plot()
-
-    print(f'最终资金: {cerebro.broker.getvalue():.2f}')
+            # 多头持仓：止损（跌破止损价）或止盈（突破止盈价）或RSI超买
+            if self.position.size > 0:
+                if (self.data.close[0] <= self.stop_loss_price or 
+                    self.data.close[0] >= self.take_profit_price or 
+                    self.rsi[0] > self.params.rsi_high):
+                    self.close()
 
 if __name__ == '__main__':
-    main()
+    cerebro = bt.Cerebro()
+    cerebro.addstrategy(
+        RSIStrategy
+    )
+
+    datapath = './orcl-1995-2014.txt'
+
+    data = bt.feeds.YahooFinanceCSVData(
+        dataname=datapath,
+        fromdate=datetime.datetime(2000, 1, 1),
+        todate=datetime.datetime(2000, 12, 31),
+        reverse=False)
+
+    cerebro.adddata(data)
+    cerebro.broker.setcash(100000.0)
+    # cerebro.addsizer(bt.sizers.FixedSize, stake=10)
+    cerebro.broker.setcommission(commission=0.0)
+
+    cerebro.run(maxcpus=1)
+    cerebro.plot()
+    print(cerebro.broker.getvalue())
