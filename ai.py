@@ -4,10 +4,12 @@ Backtrader 回测策略
 - 仅在单边上涨趋势做多
 - 根据信号强弱动态调整仓位
 - 自适应止损（ATR）+ 目标止盈
+- K线形态识别增强信号
 """
 
 import backtrader as bt
 import backtrader.analyzers as btanalyzers
+import backtrader.indicators as btind
 import numpy as np
 import datetime
 
@@ -104,6 +106,87 @@ class MarketRegime(bt.Indicator):
 
 
 # ─────────────────────────────────────────────
+# 指标：K线形态识别
+# ─────────────────────────────────────────────
+class CandlePatterns(bt.Indicator):
+    """
+    K线形态识别指标
+    返回形态信号：1=看涨, -1=看跌, 0=无信号
+    """
+    lines = ("bullish", "bearish", "signal")
+    params = dict(
+        verbose=False,
+    )
+
+    def __init__(self):
+        # 强烈看涨形态
+        self.patterns = {
+            # 看涨形态
+            "3WHITESOLDIERS": btind.CDL3WHITESOLDIERS(),
+            "ENGULFING": btind.CDLENGULFING(),
+            "MORNINGSTAR": btind.CDLMORNINGSTAR(),
+            "MORNINGDOJISTAR": btind.CDLMORNINGDOJISTAR(),
+            "PIERCING": btind.CDLPIERCING(),
+            "HAMMER": btind.CDLHAMMER(),
+            "3INSIDE": btind.CDL3INSIDE(),
+            "3OUTSIDE": btind.CDL3OUTSIDE(),
+            "ABANDONEDBABY": btind.CDLABANDONEDBABY(),
+            "CONCEALBABYSWALL": btind.CDLCONCEALBABYSWALL(),
+            "KICKING": btind.CDLKICKING(),
+            "MATCHINGLOW": btind.CDLMATCHINGLOW(),
+            "MATHOLD": btind.CDLMATHOLD(),
+            "UNIQUE3RIVER": btind.CDLUNIQUE3RIVER(),
+            # 看跌形态
+            "3BLACKCROWS": btind.CDL3BLACKCROWS(),
+            "DARKCLOUDCOVER": btind.CDLDARKCLOUDCOVER(),
+            "EVENINGSTAR": btind.CDLEVENINGSTAR(),
+            "EVENINGDOJISTAR": btind.CDLEVENINGDOJISTAR(),
+            "SHOOTINGSTAR": btind.CDLSHOOTINGSTAR(),
+            "HANGINGMAN": btind.CDLHANGINGMAN(),
+            "ADVANCEBLOCK": btind.CDLADVANCEBLOCK(),
+            "2CROWS": btind.CDL2CROWS(),
+            "IDENTICAL3CROWS": btind.CDLIDENTICAL3CROWS(),
+            "UPSIDEGAP2CROWS": btind.CDLUPSIDEGAP2CROWS(),
+        }
+
+    def next(self):
+        bullish = 0
+        bearish = 0
+
+        # 检查看涨形态
+        bull_names = [
+            "3WHITESOLDIERS", "ENGULFING", "MORNINGSTAR", "MORNINGDOJISTAR",
+            "PIERCING", "HAMMER", "3INSIDE", "3OUTSIDE", "ABANDONEDBABY",
+            "CONCEALBABYSWALL", "KICKING", "MATCHINGLOW", "MATHOLD", "UNIQUE3RIVER"
+        ]
+
+        # 检查看跌形态
+        bear_names = [
+            "3BLACKCROWS", "DARKCLOUDCOVER", "EVENINGSTAR", "EVENINGDOJISTAR",
+            "SHOOTINGSTAR", "HANGINGMAN", "ADVANCEBLOCK", "2CROWS",
+            "IDENTICAL3CROWS", "UPSIDEGAP2CROWS"
+        ]
+
+        # 检查看涨形态（值>0表示看涨）
+        for name in bull_names:
+            if self.patterns[name][0] > 0:
+                bullish += 1
+                if self.p.verbose:
+                    print(f"[{self.data.datetime.date(0)}] 看涨形态: {name}")
+
+        # 检查看跌形态（值<0表示看跌）
+        for name in bear_names:
+            if self.patterns[name][0] < 0:
+                bearish += 1
+                if self.p.verbose:
+                    print(f"[{self.data.datetime.date(0)}] 看跌形态: {name}")
+
+        self.lines.bullish[0] = bullish
+        self.lines.bearish[0] = bearish
+        self.lines.signal[0] = 1 if bullish > bearish else (-1 if bearish > bullish else 0)
+
+
+# ─────────────────────────────────────────────
 # 主策略
 # ─────────────────────────────────────────────
 class TrendFollowStrategy(bt.Strategy):
@@ -120,6 +203,10 @@ class TrendFollowStrategy(bt.Strategy):
         macd_fast=12,
         macd_slow=26,
         macd_signal=9,
+
+        # ── K线形态 ──
+        use_patterns=True,      # 是否使用K线形态
+        pattern_weight=15,      # 形态信号在总评分中的权重
 
         # ── 仓位管理 ──
         base_risk=0.02,         # 基础单笔风险比例 (占总资产)
@@ -151,6 +238,10 @@ class TrendFollowStrategy(bt.Strategy):
             ema_fast=self.p.ema_fast,
             ema_slow=self.p.ema_slow,
         )
+
+        # ── K线形态 ──
+        if self.p.use_patterns:
+            self.patterns = CandlePatterns(verbose=self.p.verbose)
 
         # ── 入场辅助 ──
         self.rsi  = bt.indicators.RelativeStrengthIndex(period=self.p.rsi_period)
@@ -192,12 +283,27 @@ class TrendFollowStrategy(bt.Strategy):
         max_size = int(portfolio_value * self.p.max_position / self.data.close[0])
         return min(size, max_size)
 
+    # ─────── 计算综合评分（包含K线形态） ───────
+    def _get_total_score(self) -> float:
+        """计算包含K线形态的综合评分"""
+        base_score = self.strength.lines.score[0]
+        
+        if self.p.use_patterns:
+            # 形态加分：每个看涨形态+10分，看跌形态-10分
+            pattern_score = (self.patterns.lines.bullish[0] - self.patterns.lines.bearish[0]) * 10
+            pattern_score = min(self.p.pattern_weight, max(-self.p.pattern_weight, pattern_score))
+            total_score = base_score + pattern_score
+        else:
+            total_score = base_score
+            
+        return min(100, max(0, total_score))
+
     # ─────── 入场信号 ───────
     def _entry_signal(self) -> bool:
         """
         多头入场条件（同时满足）：
         1. 行情为单边上涨
-        2. MACD 金叉 或 价格在EMA上方回踩EMA20支撑
+        2. MACD 金叉 或 价格在EMA上方回踩EMA20支撑 或 看涨K线形态
         3. RSI 低于超买线（避免追高）
         """
         if self.regime.lines.regime[0] != 1:
@@ -215,7 +321,12 @@ class TrendFollowStrategy(bt.Strategy):
             and self.rsi[0] < 70
         )
 
-        return macd_cross or (ema_support and self.rsi[0] < 60)
+        # 看涨K线形态信号
+        pattern_signal = False
+        if self.p.use_patterns:
+            pattern_signal = self.patterns.lines.signal[0] == 1
+
+        return macd_cross or (ema_support and self.rsi[0] < 60) or pattern_signal
 
     # ─────── 止损/止盈更新 ───────
     def _update_trail(self):
@@ -259,6 +370,13 @@ class TrendFollowStrategy(bt.Strategy):
                 self.log(f"趋势终止平仓  regime={self.regime.lines.regime[0]:.0f}")
                 self.close()
                 return
+            
+            # 看跌K线形态出现时平仓
+            if self.p.use_patterns and self.patterns.lines.signal[0] == -1:
+                self.log(f"看跌形态平仓")
+                self.close()
+                return
+                
             self._update_trail()
             return
 
@@ -266,7 +384,7 @@ class TrendFollowStrategy(bt.Strategy):
         if not self._entry_signal():
             return
 
-        score   = self.strength.lines.score[0]
+        score   = self._get_total_score()
         atr_val = self.atr[0]
         sl_dist = atr_val * self.p.atr_sl_mult
         size    = self._calc_size(score, sl_dist)
