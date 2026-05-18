@@ -4,7 +4,7 @@ import backtrader as bt
 
 from notifier import create_notifier
 from rsi_strategy import RSIStrategy
-from ai import MultiFactorTrendStrategy
+from ai import MultiPeriodTrendStrategy as TrendFollowStrategy
 
 # 创建通知器（如果配置了 Server酱 则使用，否则使用控制台）
 notifier = create_notifier(os.getenv("WECHAT_SEND_KEY", ""))
@@ -12,7 +12,7 @@ notifier = create_notifier(os.getenv("WECHAT_SEND_KEY", ""))
 
 if __name__ == '__main__':
     cerebro = bt.Cerebro()
-    cerebro.addstrategy(MultiFactorTrendStrategy)
+    cerebro.addstrategy(TrendFollowStrategy)
 
     datapath = './orcl-1995-2014.txt'
 
@@ -29,5 +29,5 @@ if __name__ == '__main__':
     initial_cash = cerebro.broker.getcash()
     cerebro.run(maxcpus=1)
     # 绘制图表
-    cerebro.plot()
+    cerebro.plot(style='candle')
 

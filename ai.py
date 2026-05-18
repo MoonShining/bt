@@ -1,35 +1,27 @@
 """
-多因子趋势跟随策略
-基于趋势、RSI、成交量、K线形态的综合判断策略
+多周期趋势跟随策略
+基于 SMA、RSI、成交量的综合判断策略
 - 仅做多（不做空）
-- 动态止损（ATR）
+- 固定止损
 - 分批止盈（金字塔式减仓）
-- 放量确认
-- 强烈K线形态增强信号
+- 短、中、长期趋势判断
 """
 
 import backtrader as bt
-try:
-    import backtrader.talib as btalib
-    HAS_TALIB = True
-except ImportError:
-    HAS_TALIB = False
 
 
-class MultiFactorTrendStrategy(bt.Strategy):
+class MultiPeriodTrendStrategy(bt.Strategy):
     """
-    多因子趋势跟随策略
+    多周期趋势跟随策略
 
     入场条件（需同时满足）：
-    1. 趋势向上：EMA20 > EMA60 且 ADX > 25
+    1. 短期、中期、长期趋势一致向上：SMA5 > SMA20 > SMA60
     2. RSI 回调：RSI(14) 在 30-50 之间（逢低买入）
     3. 放量确认：成交量 > 成交量均线(20)
-    4. K线形态：出现强烈看涨形态（三个白武士、早晨之星、刺透形态等）
 
     风险管理：
-    - 初始止损：入场价 - ATR(14) × 2.5
-    - 追踪止损：盈利 > 15% 后启用，止损价 = 最高价 - ATR × 2.0
-    - 趋势止损：EMA20 下穿 EMA60 时止损
+    - 固定止损：入场价 × (1 - 止损比例)
+    - 趋势反转止损：SMA5 下穿 SMA20
 
     分批止盈：
     - 盈利 > 20%：卖出 1/3
@@ -38,31 +30,23 @@ class MultiFactorTrendStrategy(bt.Strategy):
     """
 
     params = dict(
-        # ── 趋势指标 ──
-        ema_fast=20,
-        ema_slow=60,
-        adx_period=14,
-        adx_threshold=20,       # 降低 ADX 阈值
+        # ── 均线指标（短期、中期、长期）──
+        sma_short=5,          # 短期均线
+        sma_mid=20,          # 中期均线
+        sma_long=60,         # 长期均线
 
         # ── RSI 指标 ──
         rsi_period=14,
-        rsi_low=35,           # 提高 RSI 低阈值
+        rsi_low=30,           # RSI 低于此值视为超卖
         rsi_high=70,          # RSI 高于此值视为超买
-        rsi_entry_max=60,     # 提高 RSI 入场上限
+        rsi_entry_max=50,     # RSI 高于此值不入场（避免追高）
 
         # ── 成交量指标 ──
         vol_ma_period=20,     # 成交量均线周期
-        vol_multiplier=1.2,    # 降低放量倍数
+        vol_multiplier=1.5,    # 放量倍数
 
-        # ── K线形态 ──
-        use_patterns=True,     # 是否使用K线形态
-        min_bullish=1,        # 降低最少看涨形态数量
-
-        # ── 止损止盈 ──
-        atr_period=14,
-        atr_sl_mult=2.0,      # 降低止损倍数
-        atr_trail_mult=1.5,   # 降低追踪止损倍数
-        trail_after_pct=0.10,  # 降低启用追踪止损的盈利比例
+        # ── 固定止损 ──
+        stop_loss_pct=0.10,   # 固定止损比例（10%）
 
         # ── 分批止盈 ──
         tp1_pct=0.20,         # 第一止盈位
@@ -71,8 +55,9 @@ class MultiFactorTrendStrategy(bt.Strategy):
         tp2_ratio=0.33,       # 第二止盈卖出比例
         tp3_pct=0.60,         # 第三止盈位（或清仓）
 
-        # ── 仓位管理 ──
-        base_risk=0.02,       # 基础风险比例
+        # ── 仓位管理：基于趋势强度的动态风险 ──
+        base_risk=0.01,       # 最小风险比例
+        max_risk=0.04,        # 最大风险比例
         max_position=0.95,     # 最大仓位
 
         # ── 其他 ──
@@ -80,10 +65,10 @@ class MultiFactorTrendStrategy(bt.Strategy):
     )
 
     def __init__(self):
-        # ── 趋势指标 ──
-        self.ema_fast = bt.indicators.ExponentialMovingAverage(period=self.p.ema_fast)
-        self.ema_slow = bt.indicators.ExponentialMovingAverage(period=self.p.ema_slow)
-        self.adx = bt.indicators.AverageDirectionalMovementIndex(period=self.p.adx_period)
+        # ── 短、中、长期均线 ──
+        self.sma_short = bt.indicators.SimpleMovingAverage(period=self.p.sma_short)
+        self.sma_mid = bt.indicators.SimpleMovingAverage(period=self.p.sma_mid)
+        self.sma_long = bt.indicators.SimpleMovingAverage(period=self.p.sma_long)
 
         # ── RSI 指标 ──
         self.rsi = bt.indicators.RelativeStrengthIndex(period=self.p.rsi_period)
@@ -91,66 +76,23 @@ class MultiFactorTrendStrategy(bt.Strategy):
         # ── 成交量指标 ──
         self.vol_ma = bt.indicators.SimpleMovingAverage(self.data.volume, period=self.p.vol_ma_period)
 
-        # ── ATR（用于止损） ──
-        self.atr = bt.indicators.AverageTrueRange(period=self.p.atr_period)
-
-        # K线形态识别（使用 TA-Lib）
-        if HAS_TALIB and self.p.use_patterns:
-            self.bullish_patterns = {
-                '3WHITESOLDIERS': btalib.CDL3WHITESOLDIERS(self.data.open, self.data.high, self.data.low, self.data.close),
-                'MORNINGSTAR': btalib.CDLMORNINGSTAR(self.data.open, self.data.high, self.data.low, self.data.close),
-                'MORNINGDOJISTAR': btalib.CDLMORNINGDOJISTAR(self.data.open, self.data.high, self.data.low, self.data.close),
-                'PIERCING': btalib.CDLPIERCING(self.data.open, self.data.high, self.data.low, self.data.close),
-                'HAMMER': btalib.CDLHAMMER(self.data.open, self.data.high, self.data.low, self.data.close),
-                'ENGULFING': btalib.CDLENGULFING(self.data.open, self.data.high, self.data.low, self.data.close),
-                '3INSIDE': btalib.CDL3INSIDE(self.data.open, self.data.high, self.data.low, self.data.close),
-                '3OUTSIDE': btalib.CDL3OUTSIDE(self.data.open, self.data.high, self.data.low, self.data.close),
-                'ABANDONEDBABY': btalib.CDLABANDONEDBABY(self.data.open, self.data.high, self.data.low, self.data.close),
-                'CONCEALBABYSWALL': btalib.CDLCONCEALBABYSWALL(self.data.open, self.data.high, self.data.low, self.data.close),
-            }
-        else:
-            self.bullish_patterns = {}
-
         # ── 内部状态 ──
         self.order = None
-        self.entry_price = None
-        self.sl_price = None
+        self.avg_entry_price = 0.0  # 平均建仓价格（支持多次建仓）
+        self.total_shares = 0       # 累计持仓股数
+        self.sl_price = None        # 止损价（基于平均成本）
         self.tp_levels = {
             'tp1': False,
             'tp2': False,
             'tp3': False,
         }
-        self.highest_price = None
-        self.trailing = False
-        self.trail_price = None
 
-        # ── 统计 ──
-        self.total_trades = 0
-        self.winning_trades = 0
-
-    # ─────── 检查强烈看涨K线形态 ───────
-    def _check_bullish_pattern(self) -> int:
-        """返回看涨形态数量"""
-        if not self.p.use_patterns or not self.bullish_patterns:
-            return 0
-
-        bullish_count = 0
-
-        # 检查每个看涨形态（值>0表示出现）
-        for name, pattern in self.bullish_patterns.items():
-            if pattern[0] > 0:
-                bullish_count += 1
-                if self.p.verbose:
-                    print(f"[{self.data.datetime.date(0)}] 看涨形态: {name}")
-
-        return bullish_count
-
-    # ─────── 趋势判断 ───────
+    # ─────── 趋势判断（短、中、长期一致）──
     def _is_uptrend(self) -> bool:
-        """判断是否处于上涨趋势"""
+        """判断短、中、长期趋势一致向上"""
         return (
-            self.ema_fast[0] > self.ema_slow[0] and    # 多头排列
-            self.adx[0] >= self.p.adx_threshold         # 有明确趋势
+            self.sma_short[0] > self.sma_mid[0] and    # 短期 > 中期
+            self.sma_mid[0] > self.sma_long[0]        # 中期 > 长期
         )
 
     # ─────── 放量判断 ───────
@@ -168,34 +110,54 @@ class MultiFactorTrendStrategy(bt.Strategy):
             self.rsi[0] <= self.p.rsi_entry_max
         )
 
-    # ─────── 计算仓位 ───────
-    def _calc_position_size(self) -> int:
-        """根据风险和 ATR 计算仓位"""
-        portfolio_value = self.broker.getvalue()
-        risk_amount = portfolio_value * self.p.base_risk
+    # ─────── 计算趋势强度 ───────
+    def _calc_trend_strength(self) -> float:
+        """
+        计算趋势强度（0-1），用于决定本次建仓的风险比例
+        综合三个维度：
+        1. 均线偏离度 - SMA5 相对 SMA60 偏离越大，趋势越强
+        2. RSI 位置 - RSI 越低位，回调越充分，强度越高
+        3. 放量程度 - 成交量相对均线放大越多，强度越高
+        """
+        # 1. 均线强度：(SMA5 - SMA60) / SMA60
+        # 正常范围：0% ~ 15% → 归一化到 0-1
+        ma_diff_pct = (self.sma_short[0] - self.sma_long[0]) / self.sma_long[0]
+        ma_strength = min(max(ma_diff_pct / 0.15, 0), 1)
 
-        # 每手风险 = 止损距离
-        sl_dist = self.atr[0] * self.p.atr_sl_mult
-        if sl_dist > 0:
-            size = int(risk_amount / sl_dist)
+        # 2. RSI 强度：RSI 在 [30, 50] 区间，越小越强
+        # RSI=30 → 强度1，RSI=50 → 强度0
+        rsi_range = self.p.rsi_entry_max - self.p.rsi_low
+        if rsi_range > 0:
+            rsi_strength = (self.p.rsi_entry_max - self.rsi[0]) / rsi_range
         else:
-            size = 0
+            rsi_strength = 1
+        rsi_strength = min(max(rsi_strength, 0), 1)
 
-        # 限制最大仓位
-        max_size = int(portfolio_value * self.p.max_position / self.data.close[0])
-        return min(size, max_size)
+        # 3. 成交量强度：成交量 / (vol_multiplier × vol_ma)
+        # 正常范围：1 × ~ 3 × → 归一化到 0-1
+        vol_threshold = self.p.vol_multiplier * self.vol_ma[0]
+        if vol_threshold > 0:
+            vol_ratio = self.data.volume[0] / vol_threshold
+        else:
+            vol_ratio = 1
+        vol_strength = min(max(vol_ratio / 2, 0), 1)  # 2 倍阈值 → 强度 1
+
+        # 综合强度：加权平均（均线 40%, RSI 30%, 成交量 30%）
+        strength = 0.4 * ma_strength + 0.3 * rsi_strength + 0.3 * vol_strength
+
+        return strength
 
     # ─────── 计算当前盈利比例 ───────
     def _calc_profit_pct(self) -> float:
-        """计算当前持仓盈利比例"""
-        if not self.entry_price or self.entry_price == 0:
+        """计算当前持仓盈利比例（基于平均建仓成本）"""
+        if self.avg_entry_price == 0:
             return 0
-        return (self.data.close[0] - self.entry_price) / self.entry_price
+        return (self.data.close[0] - self.avg_entry_price) / self.avg_entry_price
 
     # ─────── 分批止盈逻辑 ───────
     def _check_take_profit(self):
         """检查是否触发分批止盈"""
-        if not self.entry_price or self.position.size == 0:
+        if self.avg_entry_price == 0 or self.position.size == 0:
             return
 
         profit_pct = self._calc_profit_pct()
@@ -227,72 +189,76 @@ class MultiFactorTrendStrategy(bt.Strategy):
     # ─────── 止损逻辑 ───────
     def _check_stop_loss(self):
         """检查止损条件"""
-        if not self.entry_price:
+        if self.avg_entry_price == 0 or self.position.size == 0:
             return
 
         current_price = self.data.close[0]
 
-        # 更新最高价
-        if self.highest_price is None:
-            self.highest_price = current_price
-        elif current_price > self.highest_price:
-            self.highest_price = current_price
-
-        # 转为追踪止损
-        profit_pct = self._calc_profit_pct()
-        if not self.trailing and profit_pct >= self.p.trail_after_pct:
-            self.trailing = True
-            self.trail_price = self.highest_price - self.atr[0] * self.p.atr_trail_mult
-            self.log(f"启用追踪止损  trail={self.trail_price:.2f}")
-
-        # 更新追踪止损价（只上移不下不下移）
-        if self.trailing:
-            new_trail = self.highest_price - self.atr[0] * self.p.atr_trail_mult
-            if new_trail > self.trail_price:
-                self.trail_price = new_trail
-
-        # 判断触发止损
-        active_sl = self.trail_price if self.trailing else self.sl_price
-
-        if current_price <= active_sl:
-            sl_type = "追踪止损" if self.trailing else "初始止损"
-            self.log(f"触发{sl_type}  price={current_price:.2f}  sl={active_sl:.2f}")
+        # 固定止损
+        if current_price <= self.sl_price:
+            self.log(f"触发固定止损  price={current_price:.2f}  sl={self.sl_price:.2f}  avg_entry={self.avg_entry_price:.2f}")
             self.close()
 
-        # 趋势反转止损：EMA20 下穿 EMA60
-        elif self.ema_fast[0] < self.ema_slow[0]:
-            self.log(f"趋势反转止损  EMA20={self.ema_fast[0]:.2f}  EMA60={self.ema_slow[0]:.2f}")
-            self.close()
-
-        # RSI 超买后回落止损
-        elif self.rsi[0] > self.p.rsi_high and self.rsi[-1] <= self.p.rsi_high:
-            self.log(f"RSI超买回落止损  RSI={self.rsi[0]:.2f}")
+        # 趋势反转止损：SMA5 下穿 SMA20
+        elif self.sma_short[0] < self.sma_mid[0]:
+            self.log(f"趋势反转止损  SMA5={self.sma_short[0]:.2f}  SMA20={self.sma_mid[0]:.2f}")
             self.close()
 
     # ─────── 入场逻辑 ───────
     def _check_entry_signal(self) -> bool:
         """检查是否满足入场条件"""
-        # 1. 趋势向上
-        uptrend = self._is_uptrend()
-        if not uptrend:
+        # 1. 趋势向上（短、中、长期一致）
+        if not self._is_uptrend():
             return False
 
         # 2. RSI 在合理区间
-        rsi_good = self._is_rsi_good()
-        if not rsi_good:
+        if not self._is_rsi_good():
             return False
 
         # 3. 放量确认
-        volume_surge = self._is_volume_surge()
-        if not volume_surge:
-            return False
-
-        # 4. 看涨 K 线形态
-        bullish_count = self._check_bullish_pattern()
-        if self.p.use_patterns and bullish_count < self.p.min_bullish:
+        if not self._is_volume_surge():
             return False
 
         return True
+
+    # ─────── 计算可建仓数量 ───────
+    def _calc_available_size(self) -> int:
+        """计算可新增建仓数量（考虑最大仓位限制，基于趋势强度动态调整风险）"""
+        portfolio_value = self.broker.getvalue()
+        current_shares = self.position.size
+        current_value = current_shares * self.data.close[0]
+        max_allowed_value = portfolio_value * self.p.max_position
+        available_value = max_allowed_value - current_value
+
+        if available_value <= 0:
+            return 0
+
+        # 计算趋势强度（0-1）
+        strength = self._calc_trend_strength()
+
+        # 根据趋势强度计算本次风险比例：base_risk ~ max_risk
+        risk_range = self.p.max_risk - self.p.base_risk
+        current_risk = self.p.base_risk + strength * risk_range
+
+        # 使用风险计算仓位大小
+        # 使用当前价格预估，实际止损会在成交后更新
+        est_entry = self.data.close[0]
+        risk_amount = portfolio_value * current_risk
+        sl_dist = est_entry * self.p.stop_loss_pct
+        if sl_dist > 0:
+            size_from_risk = int(risk_amount / sl_dist)
+        else:
+            size_from_risk = 0
+
+        # 不能超过可用额度
+        size_from_available = int(available_value / est_entry)
+
+        size = min(size_from_risk, size_from_available)
+
+        if self.p.verbose and size > 0:
+            self.log(f"趋势强度={strength:.2f}  风险比例={current_risk:.1%}  建仓规模={size}")
+
+        return size
 
     # ─────── 主逻辑 ───────
     def next(self):
@@ -300,37 +266,24 @@ class MultiFactorTrendStrategy(bt.Strategy):
         if self.order:
             return
 
-        # 有持仓时：检查止损止盈
+        # 有持仓时：先检查止损止盈
         if self.position.size > 0:
             self._check_stop_loss()
             self._check_take_profit()
-            return
 
-        # 无持仓时：检查入场
+        # 无论是否已有持仓，只要满足信号且还有加仓空间，就可以加仓（支持多次建仓）
         if self._check_entry_signal():
-            size = self._calc_position_size()
+            size = self._calc_available_size()
 
             if size <= 0:
                 return
 
-            # 计算止损止盈价格
-            entry_price = self.data.close[0]
-            atr_val = self.atr[0]
-
-            self.entry_price = entry_price
-            self.sl_price = entry_price - atr_val * self.p.atr_sl_mult
-            self.highest_price = entry_price
-            self.trailing = False
-            self.trail_price = None
-
-            # 重置止盈状态
-            self.tp_levels = {'tp1': False, 'tp2': False, 'tp3': False}
-
-            # 开仓
+            # 记录下单前状态，成交后会更新平均成本
+            self.total_shares = self.position.size
             self.log(
-                f"开仓  price={entry_price:.2f}  size={size}  "
-                f"SL={self.sl_price:.2f}  RSI={self.rsi[0]:.2f}  "
-                f"ADX={self.adx[0]:.2f}"
+                f"建仓  est_price={self.data.close[0]:.2f}  size={size}  "
+                f"RSI={self.rsi[0]:.2f}  "
+                f"SMA5={self.sma_short[0]:.2f}  SMA20={self.sma_mid[0]:.2f}  SMA60={self.sma_long[0]:.2f}"
             )
             self.order = self.buy(size=size)
 
@@ -340,23 +293,54 @@ class MultiFactorTrendStrategy(bt.Strategy):
 
         if order.status == order.Completed:
             if order.isbuy():
-                self.total_trades += 1
+                # 买入成交：更新平均建仓成本（支持多次建仓）
+                executed_price = order.executed.price
+                executed_size = order.executed.size
+                old_shares = self.total_shares  # 成交前股数
+                new_shares = old_shares + executed_size
+
+                if old_shares == 0:
+                    # 首次建仓
+                    self.avg_entry_price = executed_price
+                else:
+                    # 加仓：重新计算平均成本
+                    self.avg_entry_price = (
+                        (self.avg_entry_price * old_shares) + (executed_price * executed_size)
+                    ) / new_shares
+
+                self.total_shares = new_shares
+
+                # 更新止损价（基于最新平均成本）
+                self.sl_price = self.avg_entry_price * (1 - self.p.stop_loss_pct)
+
                 self.log(
-                    f"买入成交  price={order.executed.price:.2f}  "
-                    f"size={order.executed.size}  "
-                    f"cost={order.executed.value:.2f}"
+                    f"买入成交  price={executed_price:.2f}  "
+                    f"size={executed_size}  "
+                    f"avg_entry={self.avg_entry_price:.2f}  "
+                    f"sl={self.sl_price:.2f}  "
+                    f"total_shares={self.total_shares}"
                 )
             else:
+                # 卖出成交：如果是部分卖出，平均成本不变；如果全部卖出，重置状态
+                executed_price = order.executed.price
+                executed_size = abs(order.executed.size)
+                remaining_shares = self.total_shares - executed_size
+
                 self.log(
-                    f"卖出成交  price={order.executed.price:.2f}  "
-                    f"size={order.executed.size}  "
-                    f"value={order.executed.value:.2f}"
+                    f"卖出成交  price={executed_price:.2f}  "
+                    f"size={executed_size}  "
+                    f"remaining_shares={remaining_shares}"
                 )
 
-                # 更新统计
-                pnl = order.executed.pnl
-                if pnl > 0:
-                    self.winning_trades += 1
+                # 全部卖出后重置状态
+                if remaining_shares == 0:
+                    self.avg_entry_price = 0.0
+                    self.total_shares = 0
+                    self.sl_price = None
+                    self.tp_levels = {'tp1': False, 'tp2': False, 'tp3': False}
+                else:
+                    self.total_shares = remaining_shares
+
         elif order.status in (order.Canceled, order.Rejected, order.Margin):
             self.log(f"订单失败  status={order.getstatusname()}")
 
@@ -367,7 +351,7 @@ class MultiFactorTrendStrategy(bt.Strategy):
             pnl_pct = (trade.pnl / trade.value) * 100 if trade.value > 0 else 0
             self.log(
                 f"交易结束  PnL={trade.pnl:.2f}  "
-                f"PnL%={pnl_pct:.2f}%  "
+                f"PneL%={pnl_pct:.2f}%  "
                 f"comm={trade.pnlcomm:.2f}"
             )
 
@@ -378,4 +362,4 @@ class MultiFactorTrendStrategy(bt.Strategy):
 
 
 # 兼容旧的策略类名
-TrendFollowStrategy = MultiFactorTrendStrategy
+TrendFollowStrategy = MultiPeriodTrendStrategy
