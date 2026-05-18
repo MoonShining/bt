@@ -1,0 +1,49 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "55f885051497112638a0ba675035c9c39665806a",
+  "prompts": {
+    "16ffd1c19e7fd5b8": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-f4cc6bd9-103b-4db0-8a1d-21a2e0bb314f",
+        "model": "default"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "3522e8c32b20da73": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-344f4a14-c4f8-449c-9011-c38cf6e5b8d9",
+        "model": "default"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "a787a3a8348b4c2e": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-4f7cdc96-a6a3-4e4b-a445-05f1f7915d68",
+        "model": "default"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
