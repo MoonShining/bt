@@ -1,0 +1,38 @@
+main.py
+  231d910eeea17abd 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "79504dadbbb384ee28de18883088a10d40301c75",
+  "prompts": {
+    "231d910eeea17abd": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-31b1d015-49dc-45a1-a531-60a71206c08e",
+        "model": "default"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "5cadc155e183f84b": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-15ff6e40-918a-4a1f-91a3-2982b1916e91",
+        "model": "default"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
