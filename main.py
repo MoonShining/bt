@@ -6,7 +6,7 @@ import backtrader.analyzers as btanalyzers
 
 from notifier import create_notifier
 from ai import MultiPeriodTrendStrategy as TrendFollowStrategy
-from mean_reversion_strategy import MeanReversionStrategy
+from mean_reversion import BollingerMeanReversionStrategy as MeanReversionStrategy
 
 parser = argparse.ArgumentParser(description="回测系统")
 parser.add_argument(
@@ -20,6 +20,47 @@ parser.add_argument(
     default="trend",
     help="选择策略: trend(趋势跟随), mean(均值回归)"
 )
+parser.add_argument(
+    "--data", "-d",
+    type=str,
+    default="./sh000001_daily.csv",
+    help="数据文件路径 (默认: ./sh000001_daily.csv, 长江电力: ./cdp_daily.csv)"
+)
+parser.add_argument(
+    "--us10y-filter", "-u",
+    action="store_true",
+    help="启用美债收益率宏观过滤 (仅趋势策略)"
+)
+parser.add_argument(
+    "--us10y-high",
+    type=float,
+    default=4.5,
+    help="美债高收益率阈值(%%)，超过禁止开新仓 (默认: 4.5)"
+)
+parser.add_argument(
+    "--us10y-low",
+    type=float,
+    default=3.0,
+    help="美债低收益率阈值(%%)，低于不压缩仓位 (默认: 3.0)"
+)
+parser.add_argument(
+    "--bb-period",
+    type=int,
+    default=20,
+    help="布林带周期 (均值回归策略，默认: 20)"
+)
+parser.add_argument(
+    "--bb-dev",
+    type=float,
+    default=2.0,
+    help="布林带标准差倍数 (均值回归策略，默认: 2.0)"
+)
+parser.add_argument(
+    "--stop-loss",
+    type=float,
+    default=0.15,
+    help="止损比例 (均值回归策略，默认: 0.15 = 15%%)"
+)
 args = parser.parse_args()
 
 # 创建通知器（如果配置了 Server酱 则使用，否则使用控制台）
@@ -29,16 +70,35 @@ notifier = create_notifier(os.getenv("WECHAT_SEND_KEY", ""))
 if __name__ == '__main__':
     cerebro = bt.Cerebro()
 
+    # 策略参数
+    strategy_kwargs = {}
+
+    # 美债过滤参数
+    if args.us10y_filter:
+        strategy_kwargs['enable_us10y_filter'] = True
+        strategy_kwargs['us10y_high_threshold'] = args.us10y_high
+        strategy_kwargs['us10y_low_threshold'] = args.us10y_low
+        print(f"[配置] 启用美债收益率过滤，高阈值={args.us10y_high}%, 低阈值={args.us10y_low}%")
+
     if args.strategy == "trend":
-        cerebro.addstrategy(TrendFollowStrategy)
+        cerebro.addstrategy(TrendFollowStrategy, **strategy_kwargs)
         strategy_name = "多周期趋势跟随"
+        if args.us10y_filter:
+            strategy_name += "（美债过滤版）"
     elif args.strategy == "mean":
-        cerebro.addstrategy(MeanReversionStrategy)
-        strategy_name = "布林带均值回归"
+        # 均值回归策略参数
+        strategy_kwargs['bb_period'] = args.bb_period
+        strategy_kwargs['bb_dev'] = args.bb_dev
+        strategy_kwargs['stop_loss_pct'] = args.stop_loss
+        cerebro.addstrategy(MeanReversionStrategy, **strategy_kwargs)
+        strategy_name = f"布林带均值回归(周期={args.bb_period}, σ={args.bb_dev})"
+        print(f"[配置] 均值回归策略，布林带周期={args.bb_period}, 标准差={args.bb_dev}, 止损={args.stop_loss:.1%}")
     else:
         print(f"未知策略: {args.strategy}，使用默认趋势跟随")
-        cerebro.addstrategy(TrendFollowStrategy)
+        cerebro.addstrategy(TrendFollowStrategy, **strategy_kwargs)
         strategy_name = "多周期趋势跟随"
+        if args.us10y_filter:
+            strategy_name += "（美债过滤版）"
 
     # 添加分析器
     cerebro.addanalyzer(btanalyzers.Returns, _name='returns')
@@ -46,12 +106,27 @@ if __name__ == '__main__':
     cerebro.addanalyzer(btanalyzers.TradeAnalyzer, _name='trades')
     cerebro.addanalyzer(btanalyzers.SharpeRatio, _name='sharpe', timeframe=bt.TimeFrame.Years)
 
-    datapath = './orcl-1995-2014.txt'
+    datapath = args.data
 
-    data = bt.feeds.YahooFinanceCSVData(
+    # 根据策略和数据设置时间范围
+    if 'cdp' in datapath:
+        # 长江电力从2003年上市开始
+        fromdate = datetime.datetime(2003, 11, 18)
+    else:
+        fromdate = datetime.datetime(1991, 1, 1)
+
+    data = bt.feeds.GenericCSVData(
         dataname=datapath,
-        fromdate=datetime.datetime(1995, 1, 3),
-        todate=datetime.datetime(2014, 12, 31),
+        fromdate=fromdate,
+        todate=datetime.datetime(2026, 12, 31),
+        dtformat='%Y-%m-%d',
+        datetime=0,
+        open=1,
+        high=2,
+        low=3,
+        close=4,
+        volume=5,
+        openinterest=-1,
         reverse=False)
     cerebro.adddata(data)
 
