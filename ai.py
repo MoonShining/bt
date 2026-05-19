@@ -55,10 +55,23 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         vol_multiplier=1.2,   # 放量倍数【优化：从1.0提高到1.2，要求温和放量，比原来严但不过分】
 
         # ── 止损设置 ──
-        stop_loss_pct=0.08,   # 初始固定止损比例
+        stop_loss_pct=0.08,   # 初始固定止损比例（ATR停用时候用）
+        # ── ATR 动态止损【新增】 ──
+        use_atr_stop=True,    # 使用ATR动态止损替代固定比例
+        atr_period=14,        # ATR计算周期
+        atr_multiplier=2.5,   # 止损宽度 = ATR × 倍数（放大到2.5，给价格更多波动空间）
+
+        # ── 趋势反转止损优化【新增】 ──
+        trend_reversal_bars=2,  # 需要连续N天跌破才触发趋势反转止损
+                                # 避免假突破误止损
+
+        # ── 加仓限制【新增】 ──
+        min_bars_between_add=5,  # 两次加仓之间最小间隔N个交易日
+                                # 避免同一趋势上过度加仓
+
         # ── 跟踪止损 ──
-        use_trailing_stop=True,  # 【新增】启用跟踪止损
-        trailing_stop_pct=0.08,  # 跟踪止损回撤比例（从最高点回撤8%止损，放宽一点）
+        use_trailing_stop=False,  # 【新增】启用跟踪止损
+        trailing_stop_pct=0.12,  # 跟踪止损回撤比例（从最高点回撤12%，给趋势更多空间）
 
         # ── 分批止盈 ──
         tp1_pct=0.20,         # 第一止盈位【优化：从15%提高到20%】
@@ -68,15 +81,11 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         tp3_pct=0.60,         # 第三止盈位（或清仓）【优化：从50%提高到60%】
 
         # ── 仓位管理：基于趋势强度的动态风险 ──
-        base_risk=0.015,      # 最小风险比例【优化：从0.02微调，平衡风险】
-        max_risk=0.07,        # 最大风险比例【优化：从0.08降到0.07，比原来保守】
-        max_position=0.95,    # 最大仓位（占总资金比例）
+        base_risk=0.01,       # 最小风险比例【优化：更保守，减少单次亏损】
+        max_risk=0.08,        # 最大风险比例【保留原来的上限，让强趋势重仓】
+        max_position=0.95,    # 总最大仓位（占总资金比例）
+        max_single_position=0.50,  # 【新增】单票最大仓位（避免单票过重）
 
-        # ── MACD 趋势过滤 ──【新增】
-        use_macd_filter=False,  # 启用MACD趋势过滤【默认关闭，可手动开启】
-        macd_fast=12,
-        macd_slow=26,
-        macd_signal=9,
 
         # ── 双向交易开关 ──
         allow_short=False,     # 是否允许做空
@@ -98,13 +107,11 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         # ── 成交量指标 ──
         self.vol_ma = bt.indicators.SimpleMovingAverage(self.data.volume, period=self.p.vol_ma_period)
 
-        # ── MACD 趋势过滤【新增】 ──
-        if self.p.use_macd_filter:
-            self.macd = bt.indicators.MACD(
+        # ── ATR 波动率指标 ──
+        if self.p.use_atr_stop:
+            self.atr = bt.indicators.AverageTrueRange(
                 self.data,
-                period_me1=self.p.macd_fast,
-                period_me2=self.p.macd_slow,
-                period_signal=self.p.macd_signal
+                period=self.p.atr_period
             )
 
         # ── 内部状态 ──
@@ -113,6 +120,8 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         self.total_shares = 0       # 累计持仓股数（绝对值，做多做空都用正数记录）
         self.sl_price = None        # 止损价
         self.highest_price = None   # 【新增】持仓以来最高价，用于跟踪止损
+        self.last_add_bar = None    # 【新增】上次加仓所在bar索引，控制加仓间隔
+        self.down_bars_count = 0    # 【新增】连续跌破均线天数，用于趋势反转止损延迟
         self.position_type = None   # 'long' / 'short' / None
         self.tp_levels = {
             'tp1': False,
@@ -142,14 +151,24 @@ class MultiPeriodTrendStrategy(bt.Strategy):
             return self.data.volume[0] > self.vol_ma[0] * self.p.vol_multiplier
         return False
 
-    # ─────── MACD 趋势过滤【新增】 ───────
-    def _is_macd_bullish(self) -> bool:
-        """MACD 是否看涨（MACD在线上即可，放松要求，不强制零轴上方）"""
-        if not self.p.use_macd_filter:
-            return True  # 不启用过滤则直接通过
-        # 只要求MACD线上穿信号线，确认趋势方向
-        # 不强制要求零轴上方，给新生趋势机会
-        return self.macd.macd[0] > self.macd.signal[0]
+    # ─────── 检查趋势反转条件【优化：新增连续跌破计数】 ───────
+    def _check_trend_reversal(self) -> bool:
+        """
+        检查是否真的趋势反转
+        需要连续N天SMA10 < SMA30才确认，避免假突破
+        """
+        if self.position_type != 'long':
+            return False
+
+        is_current_down = self.sma_short[0] < self.sma_mid[0]
+
+        if is_current_down:
+            self.down_bars_count += 1
+        else:
+            self.down_bars_count = 0  # 重置计数
+
+        # 连续N天跌破才确认反转
+        return self.down_bars_count >= self.p.trend_reversal_bars
 
     # ─────── RSI 条件 ───────
     def _is_rsi_good_long(self) -> bool:
@@ -329,9 +348,9 @@ class MultiPeriodTrendStrategy(bt.Strategy):
                 else:
                     self.log(f"触发固定止损(多)  price={current_price:.2f}  sl={self.sl_price:.2f}  avg_entry={self.avg_entry_price:.2f}")
                 self.close()
-            # 趋势反转止损：SMA10 下穿 SMA30
-            elif self.sma_short[0] < self.sma_mid[0]:
-                self.log(f"趋势反转止损(多)  SMA10={self.sma_short[0]:.2f}  SMA30={self.sma_mid[0]:.2f}")
+            # 趋势反转止损：SMA10 下穿 SMA30 【优化：连续N天跌破才触发】
+            elif self._check_trend_reversal():
+                self.log(f"趋势反转止损(多)  连续{self.p.trend_reversal_bars}天跌破  SMA10={self.sma_short[0]:.2f}  SMA30={self.sma_mid[0]:.2f}")
                 self.close()
         else:  # short
             # 做空：价格上涨涨破止损价
@@ -354,14 +373,11 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         # 1. 趋势向上（短、中、长期一致）
         if not self._is_uptrend():
             return False
-        # 2. RSI 在合理区间
+        # 2. RSI 在合理区间（回调确认，避免追高）
         if not self._is_rsi_good_long():
             return False
-        # 3. 放量确认
+        # 3. 放量确认（验证突破有效性）
         if not self._is_volume_surge():
-            return False
-        # 4. MACD趋势确认【新增】
-        if not self._is_macd_bullish():
             return False
         return True
 
@@ -395,6 +411,19 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         if available_value <= 0:
             return 0
 
+        # 【新增：加仓间隔限制】如果已经有仓位，检查距离上次加仓是否足够天数
+        if self.position.size != 0 and self.last_add_bar is not None:
+            bars_since_last_add = len(self) - self.last_add_bar
+            if bars_since_last_add < self.p.min_bars_between_add:
+                # 间隔不够，不允许加仓
+                return 0
+
+        # 【新增：单票最大仓位限制】即使总仓位还有空间，单票也不能超限
+        max_single_value = portfolio_value * self.p.max_single_position
+        if current_value >= max_single_value:
+            # 单票已达上限，不允许再加仓
+            return 0
+
         # 计算趋势强度（0-1）
         if is_long:
             strength = self._calc_trend_strength_long()
@@ -406,10 +435,19 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         current_risk = self.p.base_risk + strength * risk_range
 
         # 使用风险计算仓位大小
-        # 使用当前价格预估，实际止损会在成交后更新
+        # 止损距离根据是否用ATR而不同
         est_entry = self.data.close[0]
         risk_amount = portfolio_value * current_risk
-        sl_dist = est_entry * self.p.stop_loss_pct  # 止损距离 = 入场价 × 止损比例
+
+        if self.p.use_atr_stop:
+            # ATR止损：风险金额 = 仓位 × ATR × 倍数
+            # => 仓位 = 风险金额 / (ATR × 倍数)
+            atr_value = self.atr[0]
+            sl_dist = self.p.atr_multiplier * atr_value
+        else:
+            # 固定百分比止损
+            sl_dist = est_entry * self.p.stop_loss_pct  # 止损距离 = 入场价 × 止损比例
+
         if sl_dist > 0:
             size_from_risk = int(risk_amount / sl_dist)
         else:
@@ -418,7 +456,11 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         # 不能超过可用额度
         size_from_available = int(available_value / est_entry)
 
-        size = min(size_from_risk, size_from_available)
+        # 不能超过单票剩余空间
+        remaining_single = max_single_value - current_value
+        size_from_single = int(remaining_single / est_entry)
+
+        size = min(size_from_risk, size_from_available, size_from_single)
 
         if self.p.verbose and size > 0:
             side = "多" if is_long else "空"
@@ -433,6 +475,8 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         self.total_shares = 0
         self.sl_price = None
         self.highest_price = None
+        self.last_add_bar = None
+        self.down_bars_count = 0
         self.position_type = None
         self.tp_levels = {'tp1': False, 'tp2': False, 'tp3': False}
 
@@ -504,15 +548,27 @@ class MultiPeriodTrendStrategy(bt.Strategy):
                     ) / new_shares
 
                 self.total_shares = new_shares
+                # 【新增】记录本次加仓的bar索引，用于控制加仓间隔
+                self.last_add_bar = len(self)
 
                 # 更新止损价（基于最新平均成本）
                 if self.position_type == 'long':
-                    self.sl_price = self.avg_entry_price * (1 - self.p.stop_loss_pct)
+                    if self.p.use_atr_stop:
+                        # ATR动态止损：止损 = 入场价 - ATR × 倍数
+                        atr_value = self.atr[0]
+                        self.sl_price = executed_price - self.p.atr_multiplier * atr_value
+                    else:
+                        # 固定百分比止损
+                        self.sl_price = self.avg_entry_price * (1 - self.p.stop_loss_pct)
                     # 【新增】初始化跟踪止损最高价
                     if self.p.use_trailing_stop and (self.total_shares - executed_size) == 0:
                         self.highest_price = executed_price
                 else:  # short
-                    self.sl_price = self.avg_entry_price * (1 + self.p.stop_loss_pct)
+                    if self.p.use_atr_stop:
+                        atr_value = self.atr[0]
+                        self.sl_price = executed_price + self.p.atr_multiplier * atr_value
+                    else:
+                        self.sl_price = self.avg_entry_price * (1 + self.p.stop_loss_pct)
 
                 side = "买入" if self.position_type == 'long' else "开空"
                 self.log(

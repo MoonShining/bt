@@ -6,12 +6,19 @@ import backtrader.analyzers as btanalyzers
 
 from notifier import create_notifier
 from ai import MultiPeriodTrendStrategy as TrendFollowStrategy
+from mean_reversion_strategy import MeanReversionStrategy
 
 parser = argparse.ArgumentParser(description="回测系统")
 parser.add_argument(
-    "--plot", 
-    action="store_true", 
-    help="开启调试模式（写--plot则为True，不写则为False）"
+    "--plot",
+    action="store_true",
+    help="开启绘图模式"
+)
+parser.add_argument(
+    "--strategy", "-s",
+    type=str,
+    default="trend",
+    help="选择策略: trend(趋势跟随), mean(均值回归)"
 )
 args = parser.parse_args()
 
@@ -21,7 +28,17 @@ notifier = create_notifier(os.getenv("WECHAT_SEND_KEY", ""))
 
 if __name__ == '__main__':
     cerebro = bt.Cerebro()
-    cerebro.addstrategy(TrendFollowStrategy)
+
+    if args.strategy == "trend":
+        cerebro.addstrategy(TrendFollowStrategy)
+        strategy_name = "多周期趋势跟随"
+    elif args.strategy == "mean":
+        cerebro.addstrategy(MeanReversionStrategy)
+        strategy_name = "布林带均值回归"
+    else:
+        print(f"未知策略: {args.strategy}，使用默认趋势跟随")
+        cerebro.addstrategy(TrendFollowStrategy)
+        strategy_name = "多周期趋势跟随"
 
     # 添加分析器
     cerebro.addanalyzer(btanalyzers.Returns, _name='returns')
@@ -139,7 +156,7 @@ if __name__ == '__main__':
 
     # 发送到微信
     msg = '\n\n'.join(msg_lines)
-    notifier.send( f'回测结果：{datapath}', msg)
+    notifier.send(f'[{strategy_name}] 回测结果：{datapath}', msg)
 
     # 绘制图表
     if args.plot:
