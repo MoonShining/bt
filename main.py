@@ -1,6 +1,7 @@
 import datetime
 import os
 import argparse
+import pandas as pd
 import backtrader as bt
 import backtrader.analyzers as btanalyzers
 
@@ -58,8 +59,14 @@ parser.add_argument(
 parser.add_argument(
     "--stop-loss",
     type=float,
-    default=0.15,
-    help="止损比例 (均值回归策略，默认: 0.15 = 15%%)"
+    default=0.20,
+    help="止损比例 (均值回归策略，默认: 0.20 = 20%%，回测最优参数)"
+)
+parser.add_argument(
+    "--years", "-y",
+    type=int,
+    default=None,
+    help="回测最近N年（不指定则用全量数据）"
 )
 args = parser.parse_args()
 
@@ -109,16 +116,26 @@ if __name__ == '__main__':
     datapath = args.data
 
     # 根据策略和数据设置时间范围
-    if 'cdp' in datapath:
+    end_date = datetime.datetime(2026, 12, 31)
+    if hasattr(args, 'years') and args.years is not None:
+        # 最近N年
+        from datetime import timedelta
+        fromdate = end_date - timedelta(days=args.years * 365)
+        print(f"[时间范围] 最近 {args.years} 年: {fromdate.date()} 至 {end_date.date()}")
+    elif 'cdp' in datapath:
         # 长江电力从2003年上市开始
         fromdate = datetime.datetime(2003, 11, 18)
     else:
         fromdate = datetime.datetime(1991, 1, 1)
 
+    # 保存时间范围用于后续输出
+    report_fromdate = fromdate
+    report_todate = end_date
+
     data = bt.feeds.GenericCSVData(
         dataname=datapath,
         fromdate=fromdate,
-        todate=datetime.datetime(2026, 12, 31),
+        todate=end_date,
         dtformat='%Y-%m-%d',
         datetime=0,
         open=1,
@@ -142,15 +159,24 @@ if __name__ == '__main__':
     final_cash = cerebro.broker.getvalue()
 
     print('-' * 50)
-    print('[回测结果] 1995-01-03 至 2014-12-31')
+    print(f'[回测结果] {report_fromdate.date()} 至 {report_todate.date()}')
     print('-' * 50)
 
     # 收益分析
     ret = strat.analyzers.returns.get_analysis()
-    total_return = ret['rnorm100'] / 100 * (2014 - 1995 + 1)  # 近似
+    # 计算实际年数
+    years = (report_todate - report_fromdate).days / 365.25
+    total_return = (final_cash - initial_cash) / initial_cash
+    if 'rnorm100' in ret and not pd.isna(ret['rnorm100']):
+        # rnorm100 已经是年化百分比
+        annualized = ret['rnorm100']
+    else:
+        # 手动计算年化
+        annualized = ((1 + total_return) ** (1 / years) - 1) * 100
+
     print(f'总收益:  {final_cash - initial_cash:,.2f}')
-    print(f'收益率:  {(final_cash - initial_cash) / initial_cash:.2%}')
-    print(f'年化收益率: {ret["rnorm100"]:.2f}%')
+    print(f'收益率:  {total_return:.2%}')
+    print(f'年化收益率: {annualized:.2f}%')
 
     # 夏普比率
     sharpe = strat.analyzers.sharpe.get_analysis()
