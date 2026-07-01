@@ -10,71 +10,117 @@ from ai import MultiPeriodTrendStrategy as TrendFollowStrategy
 from mean_reversion import BollingerMeanReversionStrategy as MeanReversionStrategy
 
 parser = argparse.ArgumentParser(description="回测系统")
-parser.add_argument(
-    "--plot",
-    action="store_true",
-    help="开启绘图模式"
-)
-parser.add_argument(
-    "--strategy", "-s",
-    type=str,
-    default="trend",
-    help="选择策略: trend(趋势跟随), mean(均值回归)"
-)
-parser.add_argument(
-    "--data", "-d",
-    type=str,
-    default="./sh000001_daily.csv",
-    help="数据文件路径 (默认: ./sh000001_daily.csv, 长江电力: ./cdp_daily.csv)"
-)
-parser.add_argument(
-    "--us10y-filter", "-u",
-    action="store_true",
-    help="启用美债收益率宏观过滤 (仅趋势策略)"
-)
-parser.add_argument(
-    "--us10y-high",
-    type=float,
-    default=4.5,
-    help="美债高收益率阈值(%%)，超过禁止开新仓 (默认: 4.5)"
-)
-parser.add_argument(
-    "--us10y-low",
-    type=float,
-    default=3.0,
-    help="美债低收益率阈值(%%)，低于不压缩仓位 (默认: 3.0)"
-)
-parser.add_argument(
-    "--bb-period",
-    type=int,
-    default=20,
-    help="布林带周期 (均值回归策略，默认: 20)"
-)
-parser.add_argument(
-    "--bb-dev",
-    type=float,
-    default=2.0,
-    help="布林带标准差倍数 (均值回归策略，默认: 2.0)"
-)
-parser.add_argument(
-    "--stop-loss",
-    type=float,
-    default=0.20,
-    help="止损比例 (均值回归策略，默认: 0.20 = 20%%，回测最优参数)"
-)
-parser.add_argument(
-    "--years", "-y",
-    type=int,
-    default=None,
-    help="回测最近N年（不指定则用全量数据）"
-)
-args = parser.parse_args()
 
-# 创建通知器（如果配置了 Server酱 则使用，否则使用控制台）
-notifier = create_notifier(os.getenv("WECHAT_SEND_KEY", ""))
-# notifier.send("回测结果", "测试消息\n\n第二行")
+def build_parser():
+    parser = argparse.ArgumentParser(description="回测系统")
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="开启绘图模式"
+    )
+    parser.add_argument(
+        "--strategy", "-s",
+        type=str,
+        default="trend",
+        help="选择策略: trend(趋势跟随), mean(均值回归)"
+    )
+    parser.add_argument(
+        "--data", "-d",
+        type=str,
+        default="./sh000001_daily.csv",
+        help="数据文件路径 (默认: ./sh000001_daily.csv, 长江电力: ./cdp_daily.csv)"
+    )
+    parser.add_argument(
+        "--us10y-filter", "-u",
+        action="store_true",
+        help="启用美债收益率宏观过滤 (仅趋势策略)"
+    )
+    parser.add_argument(
+        "--us10y-high",
+        type=float,
+        default=4.5,
+        help="美债高收益率阈值(%%)，超过禁止开新仓 (默认: 4.5)"
+    )
+    parser.add_argument(
+        "--us10y-low",
+        type=float,
+        default=3.0,
+        help="美债低收益率阈值(%%)，低于不压缩仓位 (默认: 3.0)"
+    )
+    parser.add_argument(
+        "--entry-mode",
+        type=str,
+        choices=["pullback", "trend_hold"],
+        default="trend_hold",
+        help="趋势策略入场模式: pullback(回调放量), trend_hold(低频趋势持有，默认)"
+    )
+    parser.add_argument(
+        "--hold-entry-ma",
+        type=int,
+        default=100,
+        help="trend_hold 入场均线周期 (默认: 100)"
+    )
+    parser.add_argument(
+        "--hold-exit-ma",
+        type=int,
+        default=100,
+        help="trend_hold 退出均线周期 (默认: 100)"
+    )
+    parser.add_argument(
+        "--hold-slope-lookback",
+        type=int,
+        default=30,
+        help="trend_hold 入场均线斜率确认周期 (默认: 30)"
+    )
+    parser.add_argument(
+        "--bb-period",
+        type=int,
+        default=20,
+        help="布林带周期 (均值回归策略，默认: 20)"
+    )
+    parser.add_argument(
+        "--bb-dev",
+        type=float,
+        default=2.0,
+        help="布林带标准差倍数 (均值回归策略，默认: 2.0)"
+    )
+    parser.add_argument(
+        "--stop-loss",
+        type=float,
+        default=0.20,
+        help="止损比例 (均值回归策略，默认: 0.20 = 20%%，回测最优参数)"
+    )
+    parser.add_argument(
+        "--trend-filter", "-t",
+        action="store_true",
+        help="启用单边趋势过滤（仅均值回归策略）：只在价格大于%d日均线时开仓，过滤下跌趋势" % 60
+    )
+    parser.add_argument(
+        "--trend-ma",
+        type=int,
+        default=60,
+        help="趋势判断均线周期 (默认: 60)"
+    )
+    parser.add_argument(
+        "--years", "-y",
+        type=int,
+        default=None,
+        help="回测最近N年（不指定则用全量数据）"
+    )
+    return parser
 
-if __name__ == '__main__':
+
+def resolve_effective_date_range(datapath, requested_from, requested_to):
+    """Return the actual available CSV date range within the requested window."""
+    dates = pd.read_csv(datapath, usecols=[0]).iloc[:, 0]
+    dates = pd.to_datetime(dates, errors="coerce").dt.date.dropna()
+    dates = dates[(dates >= requested_from) & (dates <= requested_to)]
+    if dates.empty:
+        raise ValueError(f"{datapath} 在 {requested_from} 至 {requested_to} 没有可用数据")
+    return dates.iloc[0], dates.iloc[-1]
+
+
+def run_backtest(args):
     cerebro = bt.Cerebro()
 
     # 策略参数
@@ -88,8 +134,14 @@ if __name__ == '__main__':
         print(f"[配置] 启用美债收益率过滤，高阈值={args.us10y_high}%, 低阈值={args.us10y_low}%")
 
     if args.strategy == "trend":
+        strategy_kwargs['entry_mode'] = args.entry_mode
+        strategy_kwargs['hold_entry_ma'] = args.hold_entry_ma
+        strategy_kwargs['hold_exit_ma'] = args.hold_exit_ma
+        strategy_kwargs['hold_ma_slope_lookback'] = args.hold_slope_lookback
         cerebro.addstrategy(TrendFollowStrategy, **strategy_kwargs)
         strategy_name = "多周期趋势跟随"
+        if args.entry_mode == "trend_hold":
+            strategy_name = f"低频趋势持有(MA{args.hold_entry_ma}/MA{args.hold_exit_ma})"
         if args.us10y_filter:
             strategy_name += "（美债过滤版）"
     elif args.strategy == "mean":
@@ -97,9 +149,17 @@ if __name__ == '__main__':
         strategy_kwargs['bb_period'] = args.bb_period
         strategy_kwargs['bb_dev'] = args.bb_dev
         strategy_kwargs['stop_loss_pct'] = args.stop_loss
+        if args.trend_filter:
+            strategy_kwargs['enable_trend_filter'] = True
+            strategy_kwargs['trend_ma_period'] = args.trend_ma
         cerebro.addstrategy(MeanReversionStrategy, **strategy_kwargs)
-        strategy_name = f"布林带均值回归(周期={args.bb_period}, σ={args.bb_dev})"
+        strategy_name = f"布林带均值回归(周期={args.bb_period}, σ={args.bb_dev}"
+        if args.trend_filter:
+            strategy_name += f", 趋势过滤[{args.trend_ma}均线]"
+        strategy_name += ")"
         print(f"[配置] 均值回归策略，布林带周期={args.bb_period}, 标准差={args.bb_dev}, 止损={args.stop_loss:.1%}")
+        if args.trend_filter:
+            print(f"[配置] 启用单边趋势过滤：仅价格 > {args.trend_ma}日均线 允许开仓")
     else:
         print(f"未知策略: {args.strategy}，使用默认趋势跟随")
         cerebro.addstrategy(TrendFollowStrategy, **strategy_kwargs)
@@ -132,10 +192,18 @@ if __name__ == '__main__':
     report_fromdate = fromdate
     report_todate = end_date
 
+    effective_from, effective_to = resolve_effective_date_range(
+        datapath,
+        fromdate.date(),
+        end_date.date(),
+    )
+    report_fromdate = datetime.datetime.combine(effective_from, datetime.time.min)
+    report_todate = datetime.datetime.combine(effective_to, datetime.time.min)
+
     data = bt.feeds.GenericCSVData(
         dataname=datapath,
-        fromdate=fromdate,
-        todate=end_date,
+        fromdate=report_fromdate,
+        todate=report_todate,
         dtformat='%Y-%m-%d',
         datetime=0,
         open=1,
@@ -193,6 +261,7 @@ if __name__ == '__main__':
 
     # 交易统计
     trade = strat.analyzers.trades.get_analysis()
+    total_trades = 0
     if 'total' in trade and 'total' in trade['total']:
         total_trades = trade['total']['total']
         print(f'\n交易统计:')
@@ -216,13 +285,13 @@ if __name__ == '__main__':
 
     # 收集回测结果，通过微信发送
     msg_lines = [
-        '📊 回测结果: 1995-01-03 至 2014-12-31',
+        f'回测结果: {report_fromdate.date()} 至 {report_todate.date()}',
         '',
         f'初始资金: {initial_cash:.2f}',
         f'最终资金: {final_cash:.2f}',
         f'总收益: {final_cash - initial_cash:,.2f}',
         f'收益率: {(final_cash - initial_cash) / initial_cash:.2%}',
-        f'年化收益率: {ret["rnorm100"]:.2f}%',
+        f'年化收益率: {annualized:.2f}%',
         '',
     ]
 
@@ -263,3 +332,8 @@ if __name__ == '__main__':
     if args.plot:
         cerebro.plot(style='candlestick')
 
+
+if __name__ == '__main__':
+    args = build_parser().parse_args()
+    notifier = create_notifier(os.getenv("WECHAT_SEND_KEY", ""))
+    run_backtest(args)

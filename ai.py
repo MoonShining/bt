@@ -49,6 +49,13 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         vol_ma_period=20,     # 成交量均线周期
         vol_multiplier=1.0,   # 放量要求
 
+        # ── 入场模式 ──
+        entry_mode="pullback",  # pullback: 原RSI回调模式；trend_hold: 低频均线趋势持有
+        hold_entry_ma=100,      # 低频趋势持有入场均线
+        hold_exit_ma=100,       # 低频趋势持有退出均线
+        hold_ma_slope_lookback=30,  # 入场均线斜率确认周期
+        reentry_cooldown_bars=20,   # trend_hold 退出后冷却期，减少均线附近反复交易
+
         # ── ATR 动态止损 ──
         use_atr_stop=True,    # 使用ATR动态止损
         atr_period=14,        # ATR计算周期
@@ -107,6 +114,8 @@ class MultiPeriodTrendStrategy(bt.Strategy):
 
         # ── 成交量指标 ──
         self.vol_ma = bt.indicators.SimpleMovingAverage(self.data.volume, period=self.p.vol_ma_period)
+        self.hold_entry_ma = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.hold_entry_ma)
+        self.hold_exit_ma = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.hold_exit_ma)
 
         # ── ATR 波动率指标 ──
         if self.p.use_atr_stop:
@@ -139,6 +148,8 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         self.highest_price = None     # 持仓以来最高价，用于跟踪止损
         self.last_add_bar = None      # 上次加仓所在bar索引，控制加仓间隔
         self.down_bars_count = 0      # 连续跌破均线天数，用于趋势反转止损延迟
+        self.exited_this_bar = False  # 当前bar已触发退出，避免同bar反手/重入
+        self.last_exit_bar = None     # 最近一次退出所在bar，用于冷却期
         self.position_type = 'long'   # 只做多，固定为long
         self.tp_levels = {
             'tp1': False,
@@ -294,6 +305,7 @@ class MultiPeriodTrendStrategy(bt.Strategy):
             if profit_pct >= self.p.tp3_pct or not trend_ok:
                 self.log(f"第三止盈/趋势反转(多)  盈利={profit_pct:.2%}  清仓")
                 self.order = self.close()
+                self.exited_this_bar = True
                 self.tp_levels['tp3'] = True
 
     # ─────── 止损逻辑 ───────
@@ -304,6 +316,12 @@ class MultiPeriodTrendStrategy(bt.Strategy):
 
         current_price = self.data.close[0]
 
+        if self.p.entry_mode == "trend_hold" and current_price < self.hold_exit_ma[0]:
+            self.log(f"趋势持有退出  price={current_price:.2f}  MA{self.p.hold_exit_ma}={self.hold_exit_ma[0]:.2f}")
+            self.order = self.close()
+            self.exited_this_bar = True
+            return
+
         # 更新跟踪止损
         self._update_trailing_stop()
 
@@ -313,13 +331,15 @@ class MultiPeriodTrendStrategy(bt.Strategy):
                 self.log(f"触发跟踪止损(多)  price={current_price:.2f}  sl={self.sl_price:.2f}  新高={self.highest_price:.2f}")
             else:
                 self.log(f"触发固定止损(多)  price={current_price:.2f}  sl={self.sl_price:.2f}  avg_entry={self.avg_entry_price:.2f}")
-            self.close()
+            self.order = self.close()
+            self.exited_this_bar = True
             return
 
         # 趋势反转止损：SMA短 下穿 SMA中
-        elif self._check_trend_reversal():
+        elif self.p.entry_mode != "trend_hold" and self._check_trend_reversal():
             self.log(f"趋势反转止损(多)  连续{self.p.trend_reversal_bars}天跌破  SMA{self.p.sma_short}={self.sma_short[0]:.2f}  SMA{self.p.sma_mid}={self.sma_mid[0]:.2f}")
-            self.close()
+            self.order = self.close()
+            self.exited_this_bar = True
             return
 
     # ─────── 入场信号检查 ───────
@@ -407,6 +427,9 @@ class MultiPeriodTrendStrategy(bt.Strategy):
 
     def _check_long_signal(self) -> bool:
         """检查做多入场信号"""
+        if self.p.entry_mode == "trend_hold" and self.position.size != 0:
+            return False
+
         # 如果已经加仓到最大单票仓位，不再加仓
         portfolio_value = self.broker.getvalue()
         current_value = abs(self.position.size) * self.data.close[0]
@@ -420,6 +443,18 @@ class MultiPeriodTrendStrategy(bt.Strategy):
             if bars_since_last_add < self.p.min_bars_between_add:
                 # 间隔不够，不允许加仓
                 return False
+
+        if self.p.entry_mode == "trend_hold":
+            if self.last_exit_bar is not None and len(self) - self.last_exit_bar < self.p.reentry_cooldown_bars:
+                return False
+            if not self._is_us10y_allowed():
+                return False
+            if len(self) < self.p.hold_entry_ma + self.p.hold_ma_slope_lookback:
+                return False
+            return (
+                self.data.close[0] > self.hold_entry_ma[0] and
+                self.hold_entry_ma[0] > self.hold_entry_ma[-self.p.hold_ma_slope_lookback]
+            )
 
         # 1. 长期趋势过滤：只在长期向上趋势中做多
         if not self._is_long_term_uptrend():
@@ -454,7 +489,10 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         # 加仓间隔限制已经在信号检查做过了
 
         # 计算趋势强度（0-1）
-        strength = self._calc_trend_strength_long()
+        if self.p.entry_mode == "trend_hold":
+            strength = 1.0
+        else:
+            strength = self._calc_trend_strength_long()
 
         # 根据趋势强度计算本次风险比例：base_risk ~ max_risk
         risk_range = self.p.max_risk - self.p.base_risk
@@ -512,6 +550,8 @@ class MultiPeriodTrendStrategy(bt.Strategy):
     # ─────── 重置状态 ───────
     def _reset_state(self):
         """重置所有状态（清仓后调用）"""
+        if self.avg_entry_price != 0:
+            self.last_exit_bar = len(self)
         self.avg_entry_price = 0.0
         self.total_shares = 0
         self.sl_price = None
@@ -523,6 +563,8 @@ class MultiPeriodTrendStrategy(bt.Strategy):
 
     # ─────── 主逻辑 ───────
     def next(self):
+        self.exited_this_bar = False
+
         # 有挂单时不操作
         if self.order:
             return
@@ -531,9 +573,12 @@ class MultiPeriodTrendStrategy(bt.Strategy):
         if self.position.size != 0:
             self._check_stop_loss()
             if not self.order:  # 止损没触发，检查止盈
-                self._check_take_profit()
+                if self.p.entry_mode != "trend_hold":
+                    self._check_take_profit()
             if self.order:
                 # 已经下单退出，返回
+                return
+            if self.exited_this_bar:
                 return
 
         # 如果已经清仓，重置状态

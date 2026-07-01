@@ -34,6 +34,12 @@ class BollingerMeanReversionStrategy(bt.Strategy):
         # - 偏离 1.5σ → 建仓 2/3
         # - 偏离 2σ → 满仓
 
+        # ── 趋势过滤 ──
+        enable_trend_filter=False,  # 是否启用单边趋势过滤（默认关闭，通过 --trend-filter 开启）
+        trend_ma_period=60,       # 趋势判断均线周期
+        # 规则：价格 > 趋势均线 → 趋势向上，允许开仓
+        #      价格 < 趋势均线 → 趋势向下，禁止开新仓，避免在下跌趋势抄底
+
         # ── 止损止盈 ──
         stop_loss_pct=0.20,   # 最大止损比例（最优参数）
         take_profit_pct=None, # None 表示让布林带自动止盈，不固定止盈
@@ -54,6 +60,14 @@ class BollingerMeanReversionStrategy(bt.Strategy):
             self.data.close,
             period=self.p.bb_period,
             devfactor=self.p.bb_dev)
+
+        # ── 趋势过滤均线 ──
+        if self.p.enable_trend_filter:
+            self.trend_ma = bt.indicators.SimpleMovingAverage(
+                self.data.close,
+                period=self.p.trend_ma_period)
+        else:
+            self.trend_ma = None
 
         # ── 美债收益率数据加载 ──
         self.us10y_df = None
@@ -158,6 +172,26 @@ class BollingerMeanReversionStrategy(bt.Strategy):
             scale = 1.0 - range_pct
             return scale
 
+    def _is_trend_allowed(self) -> bool:
+        """检查趋势是否允许开仓
+        只有当整体趋势向上时（价格 > 长期均线）才允许开仓
+        趋势向下禁止开新仓，避免在下跌趋势中不断抄底
+        """
+        if not self.p.enable_trend_filter or self.trend_ma is None:
+            return True  # 不启用则直接通过
+
+        price = self.data.close[0]
+        ma = self.trend_ma[0]
+
+        # 价格 > 长期均线 → 趋势向上 → 允许开仓
+        # 价格 < 长期均线 → 趋势向下 → 禁止开仓
+        allowed = price > ma
+
+        if self.p.verbose and not allowed:
+            self.log(f"[趋势过滤] 价格={price:.2f} < {self.p.trend_ma_period}日均线={ma:.2f}，趋势向下，禁止开新仓")
+
+        return allowed
+
     def _calc_target_position(self) -> float:
         """根据偏离程度计算目标仓位"""
         if not self.p.position_scale:
@@ -218,6 +252,10 @@ class BollingerMeanReversionStrategy(bt.Strategy):
         # ── 布林带均值回归信号 ──
         # 价格跌破下轨 → 超卖 → 买入
         if price < self.bb.bot[0]:
+
+            # 趋势过滤（如果启用）：只在趋势向上时开仓
+            if not self._is_trend_allowed():
+                return
 
             # 美债宏观过滤（如果启用）
             if not self._is_us10y_allowed():
