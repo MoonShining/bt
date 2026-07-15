@@ -1,0 +1,30 @@
+claude.md
+  h_93bd2da73f3c3c 3,5
+main.py
+  h_93bd2da73f3c3c 2-6,8,10-128,130-132,134-136,138-140,143-145,148-205,208-241
+cifangquant.py
+  s_c351ee3dee9240::t_d8780fcbff0144 1,3,5-204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "186388194c0165ab41fb6c491419504d2e44f68a",
+  "prompts": {},
+  "humans": {
+    "h_93bd2da73f3c3c": {
+      "author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_c351ee3dee9240": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f64a5-b452-7801-b911-b91821dca6e5",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
