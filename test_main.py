@@ -74,7 +74,13 @@ class MainTest(unittest.TestCase):
 
             result = run_backtest(
                 csv_paths=[csv_path],
-                config=BacktestConfig(cash=100000, commission=0.001, stake=100),
+                config=BacktestConfig(
+                    cash=100000,
+                    commission=0.001,
+                    momentum_period=20,
+                    rebalance_period=5,
+                    min_momentum=0.0,
+                ),
             )
 
             self.assertEqual(result.symbols, ["000001"])
