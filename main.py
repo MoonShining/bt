@@ -31,23 +31,18 @@ class BacktestResult:
     max_drawdown: float
 
 
-class MovingAverageCrossStrategy(bt.Strategy):
+class DualMomentumRotationStrategy(bt.Strategy):
     params = (
-        ("fast_period", 10),
-        ("slow_period", 30),
+        ("momentum_period", 60),
+        ("rebalance_period", 20),
+        ("min_momentum", 0.0),
+        ("cash_buffer", 0.95),
     )
 
     def __init__(self):
         self.orders = {}
-        self.fast_smas = {}
-        self.slow_smas = {}
-        self.crossovers = {}
+        self.bar_count = 0
         for data in self.datas:
-            fast = bt.indicators.SimpleMovingAverage(data.close, period=self.p.fast_period)
-            slow = bt.indicators.SimpleMovingAverage(data.close, period=self.p.slow_period)
-            self.fast_smas[data] = fast
-            self.slow_smas[data] = slow
-            self.crossovers[data] = bt.indicators.CrossOver(fast, slow)
             self.orders[data] = None
 
     def notify_order(self, order):
@@ -55,16 +50,52 @@ class MovingAverageCrossStrategy(bt.Strategy):
             self.orders[order.data] = None
 
     def next(self):
+        if any(order is not None for order in self.orders.values()):
+            return
+
+        self.bar_count += 1
+        if self.bar_count % self.p.rebalance_period != 0:
+            return
+        if any(len(data) <= self.p.momentum_period for data in self.datas):
+            return
+
+        selected = self._select_data()
         for data in self.datas:
-            if self.orders.get(data):
+            position = self.getposition(data)
+            if position and data is not selected:
+                self.orders[data] = self.close(data=data)
+
+        if selected is None:
+            return
+        if self.getposition(selected):
+            return
+
+        cash = self.broker.getcash() * self.p.cash_buffer
+        price = selected.close[0]
+        if price <= 0:
+            return
+
+        size = int(cash / price)
+        if size > 0:
+            self.orders[selected] = self.buy(data=selected, size=size)
+
+    def _select_data(self):
+        ranked = []
+        for data in self.datas:
+            past_close = data.close[-self.p.momentum_period]
+            current_close = data.close[0]
+            if past_close <= 0:
                 continue
 
-            position = self.getposition(data)
-            crossover = self.crossovers[data][0]
-            if not position and crossover > 0:
-                self.orders[data] = self.buy(data=data)
-            elif position and crossover < 0:
-                self.orders[data] = self.sell(data=data, size=position.size)
+            momentum = current_close / past_close - 1
+            if momentum > self.p.min_momentum:
+                ranked.append((momentum, data))
+
+        if not ranked:
+            return None
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return ranked[0][1]
 
 
 def parse_date(value: str) -> dt.date:
@@ -147,11 +178,11 @@ def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> Bac
     cerebro = bt.Cerebro()
     cerebro.broker.setcash(config.cash)
     cerebro.broker.setcommission(commission=config.commission)
-    cerebro.addsizer(bt.sizers.FixedSize, stake=config.stake)
     cerebro.addstrategy(
-        MovingAverageCrossStrategy,
-        fast_period=config.fast_period,
-        slow_period=config.slow_period,
+        DualMomentumRotationStrategy,
+        momentum_period=config.momentum_period,
+        rebalance_period=config.rebalance_period,
+        min_momentum=config.min_momentum,
     )
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
 

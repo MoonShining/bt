@@ -133,6 +133,27 @@ class MainTest(unittest.TestCase):
         self.assertFalse(hasattr(args, "fast_period"))
         self.assertFalse(hasattr(args, "slow_period"))
 
+    def test_dual_momentum_rotates_into_strongest_positive_etf(self):
+        with _tmpdir() as tmp_path:
+            weak_path = tmp_path / "weak_daily.csv"
+            strong_path = tmp_path / "strong_daily.csv"
+            _write_price_csv(weak_path, [10.0] * 80)
+            _write_price_csv(strong_path, [10.0 + index * 0.2 for index in range(80)])
+
+            result = run_backtest(
+                csv_paths=[weak_path, strong_path],
+                config=BacktestConfig(
+                    cash=100000,
+                    commission=0.0,
+                    momentum_period=20,
+                    rebalance_period=5,
+                    min_momentum=0.0,
+                ),
+            )
+
+            self.assertEqual(result.symbols, ["weak", "strong"])
+            self.assertGreater(result.end_value, result.start_value)
+
 
 class _tmpdir:
     def __enter__(self):
@@ -143,6 +164,21 @@ class _tmpdir:
 
     def __exit__(self, exc_type, exc, tb):
         self._tmp.cleanup()
+
+
+def _write_price_csv(path: Path, prices: list[float]) -> None:
+    dataframe = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-01-01", periods=len(prices), freq="D"),
+            "open": prices,
+            "high": [price + 0.1 for price in prices],
+            "low": [price - 0.1 for price in prices],
+            "close": prices,
+            "volume": [1000] * len(prices),
+            "openinterest": [0] * len(prices),
+        }
+    )
+    dataframe.to_csv(path, index=False)
 
 
 if __name__ == "__main__":
