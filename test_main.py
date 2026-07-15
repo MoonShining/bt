@@ -154,6 +154,28 @@ class MainTest(unittest.TestCase):
             self.assertEqual(result.symbols, ["weak", "strong"])
             self.assertGreater(result.end_value, result.start_value)
 
+    def test_dual_momentum_stays_in_cash_when_no_etf_has_positive_momentum(self):
+        with _tmpdir() as tmp_path:
+            first_path = tmp_path / "first_daily.csv"
+            second_path = tmp_path / "second_daily.csv"
+            _write_price_csv(first_path, [10.0 - index * 0.02 for index in range(80)])
+            _write_price_csv(second_path, [20.0 - index * 0.03 for index in range(80)])
+
+            result = run_backtest(
+                csv_paths=[first_path, second_path],
+                config=BacktestConfig(
+                    cash=100000,
+                    commission=0.0,
+                    momentum_period=20,
+                    rebalance_period=5,
+                    min_momentum=0.0,
+                ),
+            )
+
+            self.assertEqual(result.start_value, 100000)
+            self.assertEqual(result.end_value, 100000)
+            self.assertEqual(result.total_return, 0.0)
+
 
 class _tmpdir:
     def __enter__(self):
