@@ -1,0 +1,21 @@
+test_main.py
+  s_8490c0885c7745::t_a2cdf9b37d3258 157-178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "1a62ab2df86773e04d1459ecc0833aacd3b75002",
+  "prompts": {},
+  "sessions": {
+    "s_8490c0885c7745": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f64cd-97bf-7ad2-a4e8-16300e9caba5",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
