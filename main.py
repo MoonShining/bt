@@ -17,9 +17,9 @@ DEFAULT_OUTPUT_DIR = Path("data")
 class BacktestConfig:
     cash: float = 100000.0
     commission: float = 0.001
-    stake: int = 100
-    fast_period: int = 10
-    slow_period: int = 30
+    momentum_period: int = 60
+    rebalance_period: int = 20
+    min_momentum: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -199,9 +199,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="即使 CSV 已存在也重新拉取")
     parser.add_argument("--cash", type=float, default=100000.0, help="初始资金")
     parser.add_argument("--commission", type=float, default=0.001, help="交易佣金比例")
-    parser.add_argument("--stake", type=int, default=100, help="每次买入固定份额")
-    parser.add_argument("--fast-period", type=int, default=10, help="快均线周期")
-    parser.add_argument("--slow-period", type=int, default=30, help="慢均线周期")
+    parser.add_argument("--momentum-period", type=int, default=60, help="动量回看交易日数")
+    parser.add_argument("--rebalance-period", type=int, default=20, help="轮动调仓间隔交易日数")
+    parser.add_argument("--min-momentum", type=float, default=0.0, help="绝对动量最低阈值")
     return parser
 
 
@@ -228,9 +228,9 @@ def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
         config=BacktestConfig(
             cash=args.cash,
             commission=args.commission,
-            stake=args.stake,
-            fast_period=args.fast_period,
-            slow_period=args.slow_period,
+            momentum_period=args.momentum_period,
+            rebalance_period=args.rebalance_period,
+            min_momentum=args.min_momentum,
         ),
     )
     print_result(result)

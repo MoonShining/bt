@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from main import BacktestConfig, fetch_funds_to_csv, run_backtest, write_backtrader_csv
+from main import BacktestConfig, build_parser, fetch_funds_to_csv, run_backtest, write_backtrader_csv
 
 
 class FakeClient:
@@ -105,6 +105,33 @@ class MainTest(unittest.TestCase):
             csv_text = csv_path.read_text()
             self.assertEqual(csv_text.splitlines()[0], "date,open,high,low,close,volume,openinterest")
             self.assertIn("2024-01-01,1,2,0.5,1.5,100,0", csv_text)
+
+    def test_parser_exposes_rotation_parameters_only(self):
+        parser = build_parser()
+
+        args = parser.parse_args(
+            [
+                "--symbols",
+                "161226,513100",
+                "--start",
+                "2024-01-01",
+                "--end",
+                "2024-12-31",
+                "--momentum-period",
+                "90",
+                "--rebalance-period",
+                "15",
+                "--min-momentum",
+                "0.02",
+            ]
+        )
+
+        self.assertEqual(args.momentum_period, 90)
+        self.assertEqual(args.rebalance_period, 15)
+        self.assertEqual(args.min_momentum, 0.02)
+        self.assertFalse(hasattr(args, "stake"))
+        self.assertFalse(hasattr(args, "fast_period"))
+        self.assertFalse(hasattr(args, "slow_period"))
 
 
 class _tmpdir:
