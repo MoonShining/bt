@@ -1,0 +1,45 @@
+main.py
+  h_93bd2da73f3c3c 3,12,22,32,35-37,40-49,132,134,160-161,169,184-187,214,223-224
+  s_8490c0885c7745::t_00c56b43b6e5da 183,188
+strategy/__init__.py
+  s_06800c0140dea2::t_3de5ea04dd2f28 1-18
+strategy/dual_momentum_rotation.py
+  s_06800c0140dea2::t_56b1e775192178 1-68
+strategy/mean_reversion.py
+  s_06800c0140dea2::t_8dd3c6a44c2791 1-70
+strategy/trend_following.py
+  s_06800c0140dea2::t_53fafa446f7c87 1-66
+test_main.py
+  s_06800c0140dea2::t_28817e8d4199fc 3,6-7,10-14,18,20,23-24,28-31,33-34,36-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "69b349e3394e799eb352d8105559e4fbe3ca7078",
+  "prompts": {},
+  "humans": {
+    "h_93bd2da73f3c3c": {
+      "author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_06800c0140dea2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6996-b969-7003-91b2-065d2d8c98c7",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_8490c0885c7745": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f64cd-97bf-7ad2-a4e8-16300e9caba5",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
