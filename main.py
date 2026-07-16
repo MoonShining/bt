@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import html
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -8,6 +9,7 @@ import backtrader as bt
 import pandas as pd
 
 from cifangquant import CifangQuantClient
+from strategy import STRATEGIES, get_strategy
 
 
 DEFAULT_OUTPUT_DIR = Path("data")
@@ -17,9 +19,7 @@ DEFAULT_OUTPUT_DIR = Path("data")
 class BacktestConfig:
     cash: float = 100000.0
     commission: float = 0.001
-    momentum_period: int = 60
-    rebalance_period: int = 20
-    min_momentum: float = 0.0
+    strategy: str = "dual_momentum_rotation"
 
 
 @dataclass(frozen=True)
@@ -29,73 +29,24 @@ class BacktestResult:
     end_value: float
     total_return: float
     max_drawdown: float
+    equity_curve: list[dict[str, float | str]]
 
 
-class DualMomentumRotationStrategy(bt.Strategy):
-    params = (
-        ("momentum_period", 60),
-        ("rebalance_period", 20),
-        ("min_momentum", 0.0),
-        ("cash_buffer", 0.95),
-    )
-
-    def __init__(self):
-        self.orders = {}
-        self.bar_count = 0
-        for data in self.datas:
-            self.orders[data] = None
-
-    def notify_order(self, order):
-        if order.status in (order.Completed, order.Canceled, order.Margin, order.Rejected):
-            self.orders[order.data] = None
+class PortfolioValueAnalyzer(bt.Analyzer):
+    def start(self):
+        self.values = []
 
     def next(self):
-        if any(order is not None for order in self.orders.values()):
-            return
+        data_datetime = self.strategy.datas[0].datetime
+        self.values.append(
+            {
+                "date": bt.num2date(data_datetime[0]).date().isoformat(),
+                "value": float(self.strategy.broker.getvalue()),
+            }
+        )
 
-        self.bar_count += 1
-        if self.bar_count % self.p.rebalance_period != 0:
-            return
-        if any(len(data) <= self.p.momentum_period for data in self.datas):
-            return
-
-        selected = self._select_data()
-        for data in self.datas:
-            position = self.getposition(data)
-            if position and data is not selected:
-                self.orders[data] = self.close(data=data)
-
-        if selected is None:
-            return
-        if self.getposition(selected):
-            return
-
-        cash = self.broker.getcash() * self.p.cash_buffer
-        price = selected.close[0]
-        if price <= 0:
-            return
-
-        size = int(cash / price)
-        if size > 0:
-            self.orders[selected] = self.buy(data=selected, size=size)
-
-    def _select_data(self):
-        ranked = []
-        for data in self.datas:
-            past_close = data.close[-self.p.momentum_period]
-            current_close = data.close[0]
-            if past_close <= 0:
-                continue
-
-            momentum = current_close / past_close - 1
-            if momentum > self.p.min_momentum:
-                ranked.append((momentum, data))
-
-        if not ranked:
-            return None
-
-        ranked.sort(key=lambda item: item[0], reverse=True)
-        return ranked[0][1]
+    def get_analysis(self):
+        return self.values
 
 
 def parse_date(value: str) -> dt.date:
@@ -178,13 +129,9 @@ def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> Bac
     cerebro = bt.Cerebro()
     cerebro.broker.setcash(config.cash)
     cerebro.broker.setcommission(commission=config.commission)
-    cerebro.addstrategy(
-        DualMomentumRotationStrategy,
-        momentum_period=config.momentum_period,
-        rebalance_period=config.rebalance_period,
-        min_momentum=config.min_momentum,
-    )
+    cerebro.addstrategy(get_strategy(config.strategy))
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
+    cerebro.addanalyzer(PortfolioValueAnalyzer, _name="portfolio_value")
 
     symbols = []
     for csv_path in csv_paths:
@@ -210,6 +157,8 @@ def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> Bac
     strategies = cerebro.run()
     end_value = cerebro.broker.getvalue()
     drawdown = strategies[0].analyzers.drawdown.get_analysis()
+    equity_curve = strategies[0].analyzers.portfolio_value.get_analysis()
+    cerebro.plot()
 
     return BacktestResult(
         symbols=symbols,
@@ -217,6 +166,7 @@ def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> Bac
         end_value=end_value,
         total_return=(end_value - start_value) / start_value,
         max_drawdown=float(drawdown.max.drawdown or 0.0),
+        equity_curve=equity_curve,
     )
 
 
@@ -230,9 +180,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="即使 CSV 已存在也重新拉取")
     parser.add_argument("--cash", type=float, default=100000.0, help="初始资金")
     parser.add_argument("--commission", type=float, default=0.001, help="交易佣金比例")
-    parser.add_argument("--momentum-period", type=int, default=60, help="动量回看交易日数")
-    parser.add_argument("--rebalance-period", type=int, default=20, help="轮动调仓间隔交易日数")
-    parser.add_argument("--min-momentum", type=float, default=0.0, help="绝对动量最低阈值")
+    parser.add_argument(
+        "--strategy",
+        default="dual_momentum_rotation",
+        choices=sorted(STRATEGIES),
+        help="回测策略",
+    )
     return parser
 
 
@@ -242,7 +195,6 @@ def print_result(result: BacktestResult) -> None:
     print(f"结束资金: {result.end_value:.2f}")
     print(f"总收益率: {result.total_return:.2%}")
     print(f"最大回撤: {result.max_drawdown:.2f}%")
-
 
 def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
     args = build_parser().parse_args(argv)
@@ -259,9 +211,7 @@ def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
         config=BacktestConfig(
             cash=args.cash,
             commission=args.commission,
-            momentum_period=args.momentum_period,
-            rebalance_period=args.rebalance_period,
-            min_momentum=args.min_momentum,
+            strategy=args.strategy,
         ),
     )
     print_result(result)
@@ -270,3 +220,5 @@ def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
 
 if __name__ == "__main__":
     main()
+
+# python3 main.py --symbols 513030 --start 2024-01-02 --end 2024-12-31 --output-dir data --strategy trend_following
