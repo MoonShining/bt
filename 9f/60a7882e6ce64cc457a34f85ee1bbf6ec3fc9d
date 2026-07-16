@@ -1,0 +1,16 @@
+main.py
+  h_93bd2da73f3c3c 3,33,103-119,207,233-234,242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9f60a7882e6ce64cc457a34f85ee1bbf6ec3fc9d",
+  "prompts": {},
+  "humans": {
+    "h_93bd2da73f3c3c": {
+      "author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
