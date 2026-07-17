@@ -1,12 +1,7 @@
-from strategy.dual_momentum_rotation import DualMomentumRotationStrategy
-from strategy.indicators import RSRSIndicator, SlopeMomentumIndicator
-from strategy.mean_reversion import MeanReversionStrategy
 from strategy.trend_following import TrendFollowingStrategy
 
 
 STRATEGIES = {
-    "dual_momentum_rotation": DualMomentumRotationStrategy,
-    "mean_reversion": MeanReversionStrategy,
     "trend_following": TrendFollowingStrategy,
 }
 

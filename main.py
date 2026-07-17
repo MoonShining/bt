@@ -32,6 +32,14 @@ class BacktestResult:
     equity_curve: list[dict[str, float | str]]
 
 
+@dataclass(frozen=True)
+class FetchedFund:
+    symbol: str
+    csv_path: Path
+    name: str
+    display_name: str
+
+
 class PortfolioValueAnalyzer(bt.Analyzer):
     def start(self):
         self.values = []
@@ -71,19 +79,22 @@ def fetch_funds_to_csv(
     client: Optional[CifangQuantClient] = None,
     adjust: Optional[str] = None,
     force: bool = False,
-) -> list[Path]:
+) -> list[FetchedFund]:
     if start_date > end_date:
         raise ValueError("开始日期不能晚于结束日期")
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     api_client = client or CifangQuantClient()
+    fund_names = api_client.fetch_fund_name_map()
 
-    csv_paths = []
+    funds = []
     for symbol in symbols:
+        name = fund_names.get(symbol, symbol)
+        display_name = format_fund_display_name(symbol, name)
         csv_path = output_path / f"{symbol}_daily.csv"
         if csv_path.exists() and not force:
-            csv_paths.append(csv_path)
+            funds.append(FetchedFund(symbol, csv_path, name, display_name))
             continue
 
         dataframe = api_client.fetch_daily_bars(
@@ -93,9 +104,15 @@ def fetch_funds_to_csv(
             adjust=adjust,
         )
         write_backtrader_csv(dataframe, csv_path)
-        csv_paths.append(csv_path)
+        funds.append(FetchedFund(symbol, csv_path, name, display_name))
 
-    return csv_paths
+    return funds
+
+
+def format_fund_display_name(symbol: str, name: str) -> str:
+    if not name or name == symbol:
+        return symbol
+    return f"{name}({symbol})"
 
 
 def write_backtrader_csv(dataframe: pd.DataFrame, csv_path: Path) -> None:
@@ -122,7 +139,7 @@ def write_backtrader_csv(dataframe: pd.DataFrame, csv_path: Path) -> None:
     output.to_csv(csv_path, index=False)
 
 
-def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> BacktestResult:
+def run_backtest(csv_paths: Sequence[Path | str | FetchedFund], config: BacktestConfig) -> BacktestResult:
     if not csv_paths:
         raise ValueError("没有可回测的 CSV 文件")
 
@@ -135,8 +152,14 @@ def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> Bac
 
     symbols = []
     for csv_path in csv_paths:
-        path = Path(csv_path)
-        symbol = path.name.removesuffix("_daily.csv")
+        if isinstance(csv_path, FetchedFund):
+            path = csv_path.csv_path
+            symbol = csv_path.symbol
+            data_name = csv_path.display_name
+        else:
+            path = Path(csv_path)
+            symbol = path.name.removesuffix("_daily.csv")
+            data_name = symbol
         symbols.append(symbol)
         data = bt.feeds.GenericCSVData(
             dataname=str(path),
@@ -149,7 +172,7 @@ def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> Bac
             volume=5,
             openinterest=6,
             headers=True,
-            name=symbol,
+            name=data_name,
         )
         cerebro.adddata(data)
 
@@ -172,9 +195,9 @@ def run_backtest(csv_paths: Sequence[Path | str], config: BacktestConfig) -> Bac
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="拉取基金历史行情 CSV 并使用 Backtrader 回测")
-    parser.add_argument("--symbols", required=True, type=parse_symbols, help="基金代码，多个代码用逗号分隔")
-    parser.add_argument("--start", required=True, type=parse_date, help="回测开始日期，格式 YYYY-MM-DD")
-    parser.add_argument("--end", required=True, type=parse_date, help="回测结束日期，格式 YYYY-MM-DD")
+    parser.add_argument("--symbols", default="159985", type=parse_symbols, help="基金代码，多个代码用逗号分隔")
+    parser.add_argument("--start", default="2018-01-02", type=parse_date, help="回测开始日期，格式 YYYY-MM-DD")
+    parser.add_argument("--end", default="2026-06-30", type=parse_date, help="回测结束日期，格式 YYYY-MM-DD")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="CSV 保存目录")
     parser.add_argument("--adjust", default="hfq", help="复权方式，透传给 cifangquant API")
     parser.add_argument("--force", action="store_true", help="即使 CSV 已存在也重新拉取")
@@ -182,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--commission", type=float, default=0.001, help="交易佣金比例")
     parser.add_argument(
         "--strategy",
-        default="dual_momentum_rotation",
+        default="trend_following",
         choices=sorted(STRATEGIES),
         help="回测策略",
     )
@@ -198,6 +221,8 @@ def print_result(result: BacktestResult) -> None:
 
 def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
     args = build_parser().parse_args(argv)
+    print(args)
+
     csv_paths = fetch_funds_to_csv(
         symbols=args.symbols,
         start_date=args.start,
@@ -206,6 +231,7 @@ def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
         adjust=args.adjust,
         force=args.force,
     )
+
     result = run_backtest(
         csv_paths=csv_paths,
         config=BacktestConfig(
@@ -221,4 +247,4 @@ def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
 if __name__ == "__main__":
     main()
 
-# python3 main.py --symbols 513030 --start 2024-01-02 --end 2024-12-31 --output-dir data --strategy trend_following
+# python3 main.py --symbols 159985 --start 2024-01-02 --end 2024-12-31 --output-dir data --strategy trend_following

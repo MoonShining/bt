@@ -8,6 +8,7 @@ import requests
 
 
 DEFAULT_BASE_URL = "https://www.cifangquant.com/api"
+DEFAULT_FUND_LIST_ENDPOINT = "/fund/list"
 DEFAULT_DAILY_ENDPOINT = "/fund/hist_em"
 
 
@@ -28,15 +29,31 @@ class CifangQuantClient:
         self,
         token: Optional[str] = None,
         base_url: Optional[str] = None,
+        fund_list_endpoint: str = DEFAULT_FUND_LIST_ENDPOINT,
         daily_endpoint: str = DEFAULT_DAILY_ENDPOINT,
         timeout: int = 15,
         session: Optional[Any] = None,
     ):
         self.token = token or os.getenv("CIFANGQUANT_TOKEN")
         self.base_url = (base_url or os.getenv("CIFANGQUANT_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+        self.fund_list_endpoint = fund_list_endpoint
         self.daily_endpoint = daily_endpoint
         self.timeout = timeout
         self.session = session or requests.Session()
+
+    def fetch_fund_name_map(self, key_word: Optional[str] = None) -> dict[str, str]:
+        params = {}
+        if key_word:
+            params["key_word"] = key_word
+
+        response = self.session.get(
+            self._fund_list_url(),
+            params=params,
+            headers=self._headers(),
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return _extract_fund_name_map(response.json())
 
     def fetch_daily_bars(
         self,
@@ -65,6 +82,12 @@ class CifangQuantClient:
 
         rows = _extract_rows(response.json(), symbol)
         return normalize_daily_bars(rows)
+
+    def _fund_list_url(self) -> str:
+        endpoint = self.fund_list_endpoint
+        if endpoint.startswith("http://") or endpoint.startswith("https://"):
+            return endpoint
+        return f"{self.base_url}/{endpoint.lstrip('/')}"
 
     def _daily_url(self) -> str:
         endpoint = self.daily_endpoint
@@ -131,6 +154,28 @@ def normalize_daily_bars(rows: list[Any]) -> pd.DataFrame:
     dataframe = dataframe.sort_values("date").drop_duplicates("date", keep="last")
     dataframe = dataframe.set_index(pd.DatetimeIndex(dataframe.pop("date")))
     return dataframe[["open", "high", "low", "close", "volume", "openinterest"]]
+
+
+def _extract_fund_name_map(payload: Any) -> dict[str, str]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("cifangquant 基金列表响应不是对象")
+
+    if payload.get("code") not in (None, 0):
+        raise ValueError(f"cifangquant 返回错误: {payload.get('message', payload.get('code'))}")
+
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise ValueError("cifangquant 基金列表响应缺少 data 数组")
+
+    names = {}
+    for row in data:
+        if not isinstance(row, Mapping):
+            continue
+        code = _pick(row, "fund_code", "code", "symbol")
+        name = _pick(row, "fund_name", "name")
+        if code and name:
+            names[str(code).strip()] = str(name).strip()
+    return names
 
 
 def _extract_rows(payload: Any, symbol: str) -> list[Any]:
