@@ -1,0 +1,66 @@
+docs/superpowers/specs/2026-07-17-trend-following-atr-exits-design.md
+  s_ade498ba481c15::t_1b317d6e6ece7d 1-68
+docs/superpowers/plans/2026-07-17-trend-following-atr-exits.md
+  s_ade498ba481c15::t_a4dec42630786b 1-149
+main.py
+  h_93bd2da73f3c3c 199-200,208,225,234
+  s_22f5509a29899f::t_892cce50647676 224
+strategy/trend_following.py
+  s_06800c0140dea2::t_53fafa446f7c87 70,74-79
+  s_06800c0140dea2::t_a0866ecb772621 69,80
+  s_06800c0140dea2::t_2c5efbfb8d0739 71-73
+  h_93bd2da73f3c3c 6-7
+  s_06800c0140dea2::t_03ac2f86bbff92 68
+  s_ade498ba481c15::t_4f996a879fd0aa 8-9,15,18-21,24-26,35-38,41-56,82,108-134
+cifangquant.py
+  s_3caefe1dd93c5c::t_7c3026a9a940da 11,32,39,44-57,86-91,159-180
+test_trend_following.py
+  s_ade498ba481c15::t_214fe8e0199148 1,4,6,9-13,15-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c5707d43a9cd49f3a2eb3bdc02bdeb91d3588951",
+  "prompts": {},
+  "humans": {
+    "h_93bd2da73f3c3c": {
+      "author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_06800c0140dea2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6996-b969-7003-91b2-065d2d8c98c7",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_22f5509a29899f": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-a7bae152-ba87-458e-8bdf-c42e0990077c",
+        "model": "default"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_3caefe1dd93c5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f02-597a-7652-b736-16875a7474e9",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_ade498ba481c15": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f10-aae4-7b61-a1ef-bdbb9162caf0",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
