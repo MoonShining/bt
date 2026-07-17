@@ -1,0 +1,23 @@
+strategy/indicators.py
+  s_1c764fb9fd41c4::t_4dde8a298c3ceb 1-111
+strategy/__init__.py
+  s_1c764fb9fd41c4::t_0e2e6d431a0339 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8649a2429020c7d496af280d3b112b2d8d94e8fd",
+  "prompts": {},
+  "sessions": {
+    "s_1c764fb9fd41c4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dda-b8a7-75d0-8225-7b4d7e236922",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
