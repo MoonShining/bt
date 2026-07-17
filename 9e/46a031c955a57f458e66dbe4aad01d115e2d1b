@@ -1,0 +1,27 @@
+strategy/trend_following.py
+  s_8eccbe47e2c1ff::t_08249f28203a6f 82
+  h_93bd2da73f3c3c 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9e46a031c955a57f458e66dbe4aad01d115e2d1b",
+  "prompts": {},
+  "humans": {
+    "h_93bd2da73f3c3c": {
+      "author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_8eccbe47e2c1ff": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-ff1aa917-80bc-41e8-99bb-255c43734590",
+        "model": "default"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
