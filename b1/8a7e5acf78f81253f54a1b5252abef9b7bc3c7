@@ -1,0 +1,60 @@
+main.py
+  h_93bd2da73f3c3c 200,225,234 gitai:{"mixed_line_ranges":[{"Single":200}],"operations":[]}
+  s_22f5509a29899f::t_892cce50647676 224
+cifangquant.py
+  s_3caefe1dd93c5c::t_7c3026a9a940da 11,32,39,44-57,86-91,159-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b18a7e5acf78f81253f54a1b5252abef9b7bc3c7",
+  "prompts": {},
+  "humans": {
+    "h_93bd2da73f3c3c": {
+      "author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_22f5509a29899f": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-a7bae152-ba87-458e-8bdf-c42e0990077c",
+        "model": "default"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_3caefe1dd93c5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f02-597a-7652-b736-16875a7474e9",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {
+    "main.py": [
+      {
+        "hash": "h_93bd2da73f3c3c",
+        "line_ranges": [
+          {
+            "Single": 200
+          },
+          {
+            "Single": 225
+          },
+          {
+            "Single": 234
+          }
+        ],
+        "mixed_line_ranges": [
+          {
+            "Single": 200
+          }
+        ],
+        "operations": []
+      }
+    ]
+  },
+  "remote_transcripts": {}
+}
