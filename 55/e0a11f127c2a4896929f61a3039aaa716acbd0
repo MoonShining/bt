@@ -1,0 +1,27 @@
+strategy/__init__.py
+  s_1c764fb9fd41c4::t_0e2e6d431a0339 2
+strategy/indicators.py
+  s_1c764fb9fd41c4::t_4dde8a298c3ceb 1-111
+test_rsrs_indicator.py
+  s_1c764fb9fd41c4::t_a93355472060d4 1-79
+test_slope_indicator.py
+  s_1c764fb9fd41c4::t_c915b6b926f482 1-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "55e0a11f127c2a4896929f61a3039aaa716acbd0",
+  "prompts": {},
+  "sessions": {
+    "s_1c764fb9fd41c4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6dda-b8a7-75d0-8225-7b4d7e236922",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
