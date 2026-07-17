@@ -196,8 +196,8 @@ def run_backtest(csv_paths: Sequence[Path | str | FetchedFund], config: Backtest
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="拉取基金历史行情 CSV 并使用 Backtrader 回测")
     parser.add_argument("--symbols", default="159985", type=parse_symbols, help="基金代码，多个代码用逗号分隔")
-    parser.add_argument("--start", default="2018-01-02", type=parse_date, help="回测开始日期，格式 YYYY-MM-DD")
-    parser.add_argument("--end", default="2026-06-30", type=parse_date, help="回测结束日期，格式 YYYY-MM-DD")
+    parser.add_argument("--start", default="2023-01-01", type=parse_date, help="回测开始日期，格式 YYYY-MM-DD")
+    parser.add_argument("--end", default="2026-07-17", type=parse_date, help="回测结束日期，格式 YYYY-MM-DD")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="CSV 保存目录")
     parser.add_argument("--adjust", default="hfq", help="复权方式，透传给 cifangquant API")
     parser.add_argument("--force", action="store_true", help="即使 CSV 已存在也重新拉取")
@@ -247,4 +247,4 @@ def main(argv: Optional[Sequence[str]] = None) -> BacktestResult:
 if __name__ == "__main__":
     main()
 
-# python3 main.py --symbols 159985 --start 2024-01-02 --end 2024-12-31 --output-dir data --strategy trend_following
+# python3 main.py --symbols 159985 --start 2024-01-02 --end 2024-12-31

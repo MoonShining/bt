@@ -7,6 +7,10 @@ class TrendFollowingStrategy(bt.Strategy):
         ("slow_period", 30),
         ("atr_period", 14),
         ("atr_multiplier", 3.0),
+        ("adx_period", 14),
+        ("min_adx", 20.0),
+        ("atr_entry_multiplier", 0.5),
+        ("cooldown_period", 5),
         ("cash_buffer", 0.95),
     )
 
@@ -16,14 +20,17 @@ class TrendFollowingStrategy(bt.Strategy):
         self.fast_averages = {}
         self.slow_averages = {}
         self.atr_indicators = {}
+        self.adx_indicators = {}
         self.entry_prices = {}
         self.stop_prices = {}
         self.highest_closes = {}
+        self.cooldown_bars = {}
         for data in self.datas:
             self.orders[data] = None
             self.entry_prices[data] = None
             self.stop_prices[data] = None
             self.highest_closes[data] = None
+            self.cooldown_bars[data] = 0
             self.fast_averages[data] = bt.indicators.SimpleMovingAverage(
                 data.close,
                 period=self.p.fast_period,
@@ -35,6 +42,10 @@ class TrendFollowingStrategy(bt.Strategy):
             self.atr_indicators[data] = bt.indicators.AverageTrueRange(
                 data,
                 period=self.p.atr_period,
+            )
+            self.adx_indicators[data] = bt.indicators.ADX(
+                data,
+                period=self.p.adx_period,
             )
 
     def notify_order(self, order):
@@ -62,6 +73,7 @@ class TrendFollowingStrategy(bt.Strategy):
             return
         if any(len(data) < self.p.slow_period for data in self.datas):
             return
+        self._tick_cooldowns()
 
         for data in self.datas:
             position = self.getposition(data)
@@ -71,6 +83,7 @@ class TrendFollowingStrategy(bt.Strategy):
                 self._update_stop(data)
                 stop_price = self.stop_prices[data]
                 if stop_price is not None and data.close[0] <= stop_price:
+                    self.cooldown_bars[data] = self.p.cooldown_period
                     self.orders[data] = self.close(data=data)
                     return
 
@@ -79,7 +92,7 @@ class TrendFollowingStrategy(bt.Strategy):
             if position.size > 0:
                 return
 
-        selected = self._select_data()
+        selected = self._should_buy()
         if selected is None or self.getposition(selected):
             return
 
@@ -92,12 +105,19 @@ class TrendFollowingStrategy(bt.Strategy):
         if size > 0:
             self.orders[selected] = self.buy(data=selected, size=size)
 
-    def _select_data(self):
+    def _should_buy(self):
         candidates = []
         for data in self.datas:
             fast_average = self.fast_averages[data][0]
             slow_average = self.slow_averages[data][0]
-            if data.close[0] > slow_average and fast_average > slow_average:
+            atr = self.atr_indicators[data][0]
+            adx = self.adx_indicators[data][0]
+            if (
+                self.cooldown_bars[data] == 0
+                and adx >= self.p.min_adx
+                and data.close[0] > slow_average + self.p.atr_entry_multiplier * atr
+                and fast_average > slow_average
+            ):
                 candidates.append((data.close[0] / slow_average - 1, data))
 
         if not candidates:
@@ -132,3 +152,8 @@ class TrendFollowingStrategy(bt.Strategy):
         self.entry_prices[data] = None
         self.stop_prices[data] = None
         self.highest_closes[data] = None
+
+    def _tick_cooldowns(self):
+        for data, bars in self.cooldown_bars.items():
+            if bars > 0:
+                self.cooldown_bars[data] = bars - 1

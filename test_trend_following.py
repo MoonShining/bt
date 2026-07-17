@@ -64,6 +64,9 @@ class TrendFollowingStrategyTest(unittest.TestCase):
             slow_period=3,
             atr_period=2,
             atr_multiplier=1.0,
+            adx_period=2,
+            min_adx=0.0,
+            atr_entry_multiplier=0.0,
             cash_buffer=0.95,
         )
 
@@ -89,6 +92,9 @@ class TrendFollowingStrategyTest(unittest.TestCase):
             slow_period=3,
             atr_period=2,
             atr_multiplier=10.0,
+            adx_period=2,
+            min_adx=0.0,
+            atr_entry_multiplier=0.0,
             cash_buffer=0.95,
         )
 
@@ -117,6 +123,9 @@ class TrendFollowingStrategyTest(unittest.TestCase):
             slow_period=3,
             atr_period=2,
             atr_multiplier=1.0,
+            adx_period=2,
+            min_adx=0.0,
+            atr_entry_multiplier=0.0,
             cash_buffer=0.95,
         )
 
@@ -124,6 +133,71 @@ class TrendFollowingStrategyTest(unittest.TestCase):
 
         self.assertTrue(sells)
         self.assertEqual(strategy.getposition(strategy.datas[0]).size, 0)
+
+    def test_low_adx_sideways_breakout_is_filtered(self):
+        bars = [
+            (10.00, 10.20, 9.80, 10.00),
+            (10.00, 10.20, 9.80, 10.05),
+            (10.05, 10.25, 9.85, 10.10),
+            (10.10, 10.30, 9.90, 10.05),
+            (10.05, 10.25, 9.85, 10.10),
+            (10.10, 10.30, 9.90, 10.15),
+            (10.15, 10.35, 9.95, 10.10),
+            (10.10, 10.30, 9.90, 10.15),
+            (10.15, 10.35, 9.95, 10.20),
+            (10.20, 10.40, 10.00, 10.15),
+            (10.15, 10.35, 9.95, 10.20),
+            (10.20, 10.40, 10.00, 10.25),
+        ]
+        strategy = run_strategy(
+            bars,
+            fast_period=2,
+            slow_period=3,
+            atr_period=2,
+            adx_period=3,
+            min_adx=80.0,
+            atr_entry_multiplier=0.0,
+            cash_buffer=0.95,
+        )
+
+        buys = [event for event in strategy.order_events if event["side"] == "buy"]
+
+        self.assertEqual(buys, [])
+
+    def test_atr_stop_cooldown_prevents_immediate_reentry(self):
+        bars = [
+            (10, 10.5, 9.5, 10),
+            (10.5, 11, 10, 10.5),
+            (11, 11.5, 10.5, 11),
+            (11.5, 12, 11, 11.5),
+            (12, 12.5, 11.5, 12),
+            (12.5, 13, 12, 12.5),
+            (13, 13.5, 12.5, 13),
+            (13.5, 14, 13, 13.5),
+            (14, 14.5, 13.5, 14),
+            (14, 14.5, 9, 9.5),
+            (14.5, 15, 14, 14.5),
+            (15, 15.5, 14.5, 15),
+            (15.5, 16, 15, 15.5),
+        ]
+        strategy = run_strategy(
+            bars,
+            fast_period=2,
+            slow_period=3,
+            atr_period=2,
+            atr_multiplier=1.0,
+            adx_period=2,
+            min_adx=0.0,
+            atr_entry_multiplier=0.0,
+            cooldown_period=3,
+            cash_buffer=0.95,
+        )
+
+        buys = [event for event in strategy.order_events if event["side"] == "buy"]
+        sells = [event for event in strategy.order_events if event["side"] == "sell"]
+
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(len(buys), 1)
 
 
 if __name__ == "__main__":
