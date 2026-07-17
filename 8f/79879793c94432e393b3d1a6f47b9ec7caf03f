@@ -1,0 +1,60 @@
+test_trend_following.py
+  s_df6478d73c854e::t_2034dde42fef14 67-69,95-97,126-128,137-197
+  s_ade498ba481c15::t_93701fd1f8cda1 198-200
+  s_ade498ba481c15::t_214fe8e0199148 201
+strategy/trend_following.py
+  h_93bd2da73f3c3c 108
+  s_06800c0140dea2::t_95f6e8bda0d988 113-114
+  s_06800c0140dea2::t_53fafa446f7c87 115-120
+  s_df6478d73c854e::t_28ee9c3c0dcbae 10-13,23,27,33,46-49,76,86,155-159
+  s_8eccbe47e2c1ff::t_08249f28203a6f 95
+main.py
+  h_93bd2da73f3c3c 199-200,250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8f79879793c94432e393b3d1a6f47b9ec7caf03f",
+  "prompts": {},
+  "humans": {
+    "h_93bd2da73f3c3c": {
+      "author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_06800c0140dea2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6996-b969-7003-91b2-065d2d8c98c7",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_8eccbe47e2c1ff": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-ff1aa917-80bc-41e8-99bb-255c43734590",
+        "model": "default"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_ade498ba481c15": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f10-aae4-7b61-a1ef-bdbb9162caf0",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    },
+    "s_df6478d73c854e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f47-eb64-71f0-92c2-61148a0fd322",
+        "model": "unknown"
+      },
+      "human_author": "ZhouBinJie <zhoubinjie@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
